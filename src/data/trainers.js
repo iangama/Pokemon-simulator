@@ -62,4 +62,39 @@ export const TRAINERS = {
       { species: 'skarmory', level: 17 },
     ],
   },
+  'trainer-lena': {
+    id: 'trainer-lena',
+    name: 'Ace Trainer Lena',
+    areaId: 'crystalLake',
+    rewardMoney: 2500,
+    team: [
+      { species: 'spheal', level: 20 },
+      { species: 'electrike', level: 20 },
+      { species: 'absol', level: 21 },
+    ],
+  },
+  'trainer-orion': {
+    id: 'trainer-orion',
+    name: 'Veteran Orion',
+    areaId: 'thunderPlateau',
+    rewardMoney: 3200,
+    team: [
+      { species: 'magneton', level: 24 },
+      { species: 'manectric', level: 24 },
+      { species: 'electabuzz', level: 25 },
+      { species: 'ampharos', level: 26 },
+    ],
+  },
+  'trainer-ivy': {
+    id: 'trainer-ivy',
+    name: 'Explorer Ivy',
+    areaId: 'glacierCavern',
+    rewardMoney: 3600,
+    team: [
+      { species: 'glalie', level: 25 },
+      { species: 'weavile', level: 26 },
+      { species: 'lapras', level: 26 },
+      { species: 'mamoswine', level: 27 },
+    ],
+  },
 };

@@ -29,6 +29,7 @@ import { TRAINERS } from '../data/trainers';
 import { GYMS } from '../data/gyms';
 import { ITEMS } from '../data/items';
 import { SHOP_CATALOG } from '../data/shopCatalog';
+import { EXPEDITIONS } from '../data/expeditions';
 import { AREA_MAPS, MAP_PRESETS, getMapPresetById, getTileAt, findExit } from '../data/areaMaps';
 import { getItemEvolutionsForSpecies } from '../data/evolutionItems';
 import { QUESTS, WORLD_NPCS } from '../data/quests';
@@ -127,6 +128,11 @@ const initialState = {
   },
   profile: {
     codexViewedNpcs: {},
+  },
+  expeditions: {
+    progress: {},
+    completed: {},
+    log: [],
   },
   tcg: {
     collection: {},
@@ -263,13 +269,22 @@ function struggleMove() {
   };
 }
 
-function applyQuestRewards({ inventory, money }, rewards = {}) {
+function applyQuestRewards({ inventory, money, team }, rewards = {}) {
   let nextInventory = { ...inventory };
   let nextMoney = money + (rewards.money || 0);
+  let nextTeam = [...(team || [])];
   for (const [itemId, qty] of Object.entries(rewards.items || {})) {
     nextInventory = addItem(nextInventory, itemId, qty);
   }
-  return { inventory: nextInventory, money: nextMoney };
+  const teamXp = Number(rewards.teamXp || 0);
+  const leadXp = Number(rewards.leadXp || 0);
+  if (teamXp > 0 && nextTeam.length) {
+    nextTeam = nextTeam.map((member) => applyXp(member, teamXp).pokemon);
+  }
+  if (leadXp > 0 && nextTeam.length) {
+    nextTeam[0] = applyXp(nextTeam[0], leadXp).pokemon;
+  }
+  return { inventory: nextInventory, money: nextMoney, team: nextTeam };
 }
 
 function ensureDiscoveredAreas(world = {}) {
@@ -359,6 +374,27 @@ function normalizeDaycare(raw = {}) {
   };
 }
 
+function normalizeExpeditions(raw = {}) {
+  const next = {
+    progress: { ...(raw.progress || {}) },
+    completed: { ...(raw.completed || {}) },
+    log: Array.isArray(raw.log) ? [...raw.log] : [],
+  };
+
+  for (const expedition of Object.values(EXPEDITIONS)) {
+    const current = Number(next.progress[expedition.id] || 0);
+    next.progress[expedition.id] = Math.max(0, Math.min(expedition.phases.length, current));
+    if (next.progress[expedition.id] >= expedition.phases.length) {
+      next.completed[expedition.id] = true;
+      if (!next.log.includes(expedition.id)) next.log.push(expedition.id);
+    }
+  }
+  for (const id of Object.keys(next.completed)) {
+    if (!EXPEDITIONS[id]) delete next.completed[id];
+  }
+  return next;
+}
+
 function applyOutsideStatusStep(team = []) {
   if (!team.length) return { team, damaged: false };
   const lead = team[0];
@@ -377,6 +413,51 @@ function applyOutsideStatusStep(team = []) {
 function pathChoiceModifier(worldSystems) {
   const found = QUEST_PATH_CHOICES.find((choice) => choice.id === worldSystems?.pathChoice);
   return found?.rewardsMod || { money: 1, encounterRate: 1 };
+}
+
+function averageTeamLevel(team = []) {
+  if (!team.length) return 1;
+  return team.reduce((sum, member) => sum + (member.level || 1), 0) / team.length;
+}
+
+function questRecommendedLevel(quest) {
+  if (!quest) return 8;
+  for (const objective of quest.objectives || []) {
+    if (!objective.areaId) continue;
+    const area = AREAS[objective.areaId];
+    if (!area) continue;
+    if (area.minLevel && area.maxLevel) return Math.floor((area.minLevel + area.maxLevel) / 2);
+    if (area.maxLevel) return area.maxLevel;
+    if (area.minLevel) return area.minLevel;
+  }
+  if (quest.turnInAreaId && AREAS[quest.turnInAreaId]?.maxLevel) {
+    return AREAS[quest.turnInAreaId].maxLevel;
+  }
+  return 8;
+}
+
+function scaleQuestXp({ rewards = {}, quest, team = [] }) {
+  const hasQuestXp = Number(rewards.teamXp || 0) > 0 || Number(rewards.leadXp || 0) > 0;
+  if (!hasQuestXp) return rewards;
+
+  const avgLevel = averageTeamLevel(team);
+  const recommended = questRecommendedLevel(quest);
+  const ratio = recommended / Math.max(1, avgLevel);
+  const levelScale = Math.max(0.6, Math.min(1.6, Math.pow(ratio, 0.72)));
+  const partyScale = Math.max(0.55, Math.min(1, 4 / Math.max(4, (team.length || 1) * 1.2)));
+
+  const scaledTeamXp = rewards.teamXp
+    ? Math.max(20, Math.floor(rewards.teamXp * levelScale * partyScale))
+    : 0;
+  const scaledLeadXp = rewards.leadXp
+    ? Math.max(20, Math.floor(rewards.leadXp * levelScale))
+    : 0;
+
+  return {
+    ...rewards,
+    teamXp: scaledTeamXp || undefined,
+    leadXp: scaledLeadXp || undefined,
+  };
 }
 
 function explorationEncounterModifier(team = []) {
@@ -469,6 +550,7 @@ function normalizeLoadedState(save = {}) {
     profile: {
       codexViewedNpcs: { ...(save.profile?.codexViewedNpcs || {}) },
     },
+    expeditions: normalizeExpeditions(save.expeditions),
     questToast: null,
     questPopup: null,
     achievementToast: null,
@@ -530,11 +612,13 @@ export function GameProvider({ children }) {
       world = state.world,
       inventory = state.inventory,
       money = state.money,
+      team = state.team,
       reputation = state.reputation,
     }) {
       const resolved = resolveQuestEvent({ quests, event });
       let nextInventory = inventory;
       let nextMoney = money;
+      let nextTeam = [...team];
       let nextWorld = { ...world, flags: [...(world.flags || [])] };
       let nextReputation = { ...reputation };
       let popup = null;
@@ -543,13 +627,15 @@ export function GameProvider({ children }) {
         const quest = QUESTS[questId];
         if (!quest) continue;
         const moneyMod = pathChoiceModifier(state.worldSystems).money || 1;
-        const adjustedRewards = {
+        let adjustedRewards = {
           ...(quest.rewards || {}),
           money: Math.floor((quest.rewards?.money || 0) * moneyMod),
         };
-        const rewarded = applyQuestRewards({ inventory: nextInventory, money: nextMoney }, adjustedRewards);
+        adjustedRewards = scaleQuestXp({ rewards: adjustedRewards, quest, team: nextTeam });
+        const rewarded = applyQuestRewards({ inventory: nextInventory, money: nextMoney, team: nextTeam }, adjustedRewards);
         nextInventory = rewarded.inventory;
         nextMoney = rewarded.money;
+        nextTeam = rewarded.team;
         for (const flag of quest.rewards?.flags || []) {
           if (!nextWorld.flags.includes(flag)) nextWorld.flags.push(flag);
         }
@@ -569,6 +655,7 @@ export function GameProvider({ children }) {
         world: nextWorld,
         inventory: nextInventory,
         money: nextMoney,
+        team: nextTeam,
         reputation: nextReputation,
         questToast: resolved.progressToasts.at(-1) || null,
         questPopup: popup,
@@ -750,6 +837,7 @@ export function GameProvider({ children }) {
         type: 'PATCH',
         payload: {
           world: questRuntime.world,
+          team: questRuntime.team,
           quests: questRuntime.quests,
           inventory: questRuntime.inventory,
           money: questRuntime.money,
@@ -765,6 +853,7 @@ export function GameProvider({ children }) {
       saveGame({
         ...state,
         world: questRuntime.world,
+        team: questRuntime.team,
         quests: questRuntime.quests,
         inventory: questRuntime.inventory,
         money: questRuntime.money,
@@ -818,6 +907,7 @@ export function GameProvider({ children }) {
         type: 'PATCH',
         payload: {
           world: questRuntime.world,
+          team: questRuntime.team,
           quests: questRuntime.quests,
           inventory: questRuntime.inventory,
           money: questRuntime.money,
@@ -952,6 +1042,7 @@ export function GameProvider({ children }) {
           type: 'PATCH',
           payload: {
             world: questRuntime.world,
+            team: questRuntime.team,
             quests: questRuntime.quests,
             inventory: questRuntime.inventory,
             money: questRuntime.money,
@@ -1047,6 +1138,7 @@ export function GameProvider({ children }) {
         type: 'PATCH',
         payload: {
           world: questRuntime.world,
+          team: questRuntime.team,
           quests: questRuntime.quests,
           inventory: questRuntime.inventory,
           money: questRuntime.money,
@@ -1281,12 +1373,14 @@ export function GameProvider({ children }) {
           world: nextWorldAfterBattle,
           inventory: nextInventoryWithBossReward,
           money: reward.money,
+          team: nextTeam,
         })
         : {
           quests: state.quests,
           world: nextWorldAfterBattle,
           inventory: state.inventory,
           money: reward.money,
+          team: nextTeam,
           reputation: state.reputation,
           questToast: null,
           questPopup: null,
@@ -1314,7 +1408,7 @@ export function GameProvider({ children }) {
       dispatch({
         type: 'PATCH',
         payload: {
-          team: nextTeam,
+          team: questRuntime.team,
           money: questRuntime.money,
           inventory: questRuntime.inventory,
           world: questRuntime.world,
@@ -1325,7 +1419,7 @@ export function GameProvider({ children }) {
           questPopup: questRuntime.questPopup || state.questPopup,
           achievementToast: achievementRuntime.toast || state.achievementToast,
           badges: nextBadges,
-          pendingLevelUp: reward.leveledUp ? nextTeam[0] : null,
+          pendingLevelUp: reward.leveledUp ? questRuntime.team[0] : null,
           pendingEvolution: null,
           pendingMoveLearn,
           battleSummary: {
@@ -1334,7 +1428,7 @@ export function GameProvider({ children }) {
             message: `${defeated?.name || 'Inimigo'} derrotado.`,
             xpTotal,
             moneyGained: adjustedTrainerReward,
-            xpToNextLevel: xpRemainingToNextLevel(nextTeam[0]),
+            xpToNextLevel: xpRemainingToNextLevel(questRuntime.team[0]),
           },
           tcg: { ...state.tcg, collection: nextCollection },
           worldSystems: {
@@ -1422,6 +1516,7 @@ export function GameProvider({ children }) {
       const questRuntime = resolveQuestRuntime({
         event: { type: 'capture', species: target.species, areaId: state.world.areaId },
         inventory: nextInventory,
+        team: nextTeam,
       });
       const regionId = AREAS[state.world.areaId]?.region;
       const reputationAfterCapture = addReputation(questRuntime.reputation, regionId, 1);
@@ -1441,7 +1536,7 @@ export function GameProvider({ children }) {
         type: 'PATCH',
         payload: {
           inventory: questRuntime.inventory,
-          team: nextTeam,
+          team: questRuntime.team,
           storage: nextStorage,
           pokedex: markCaught(state.pokedex, target.species),
           quests: questRuntime.quests,
@@ -1458,7 +1553,7 @@ export function GameProvider({ children }) {
             result: 'captured',
             log: [...battle.log.slice(-18), `${target.name} foi capturado!`],
           },
-          pendingLevelUp: leveledUp ? nextTeam[0] : state.pendingLevelUp,
+          pendingLevelUp: leveledUp ? questRuntime.team[0] : state.pendingLevelUp,
           pendingMoveLearn,
           captureSummary: {
             title: 'Pokemon Capturado!',
@@ -1466,7 +1561,7 @@ export function GameProvider({ children }) {
             level: target.level,
             capturedTo,
             xpGained: captureXp,
-            xpToNextLevel: xpRemainingToNextLevel(nextTeam[0]),
+            xpToNextLevel: xpRemainingToNextLevel(questRuntime.team[0]),
           },
         },
       });
@@ -1748,6 +1843,119 @@ export function GameProvider({ children }) {
             pathChoice: choiceId,
             pathChoiceSelected: true,
           },
+        },
+      });
+      return true;
+    },
+
+    runExpedition(expeditionId, memberUid) {
+      const expedition = EXPEDITIONS[expeditionId];
+      if (!expedition) return false;
+
+      const discovered = state.world.discoveredAreas || [];
+      if (!discovered.includes(expedition.unlockAreaId)) {
+        dispatch({ type: 'PATCH', payload: { error: `Descubra ${AREAS[expedition.unlockAreaId]?.name || expedition.unlockAreaId} para liberar essa expedicao.` } });
+        return false;
+      }
+
+      const currentState = normalizeExpeditions(state.expeditions);
+      const phaseIndex = Number(currentState.progress?.[expeditionId] || 0);
+      if (phaseIndex >= expedition.phases.length) {
+        dispatch({ type: 'PATCH', payload: { questToast: `Expedicao ${expedition.name} ja concluida.` } });
+        return false;
+      }
+
+      const phase = expedition.phases[phaseIndex];
+      if (!discovered.includes(phase.areaId)) {
+        dispatch({ type: 'PATCH', payload: { error: `Fase bloqueada. Primeiro descubra ${AREAS[phase.areaId]?.name || phase.areaId}.` } });
+        return false;
+      }
+
+      const lead = state.team.find((entry) => entry.uid === memberUid) || state.team[0];
+      if (!lead) return false;
+
+      const levelGap = phase.recommendedLevel - (lead.level || 1);
+      const successChance = Math.max(0.28, Math.min(0.96, 0.72 - levelGap * 0.05));
+      const success = Math.random() <= successChance;
+      const leadXp = success ? phase.baseXp : Math.max(120, Math.floor(phase.baseXp * 0.45));
+      const sharedXp = Math.max(40, Math.floor(leadXp * 0.24));
+      const nextTeam = state.team.map((member) => {
+        const gain = member.uid === lead.uid ? leadXp : sharedXp;
+        return applyXp(member, gain).pokemon;
+      });
+
+      let nextInventory = { ...state.inventory };
+      let nextMoney = state.money;
+      const nextExpeditions = normalizeExpeditions(currentState);
+
+      if (success) {
+        nextExpeditions.progress[expeditionId] = phaseIndex + 1;
+        nextMoney += phase.rewardMoney || 0;
+        for (const [itemId, qty] of Object.entries(phase.rewardItems || {})) {
+          nextInventory = addItem(nextInventory, itemId, qty);
+        }
+      }
+
+      const finished = nextExpeditions.progress[expeditionId] >= expedition.phases.length;
+      if (finished && !nextExpeditions.completed[expeditionId]) {
+        nextExpeditions.completed[expeditionId] = true;
+        if (!nextExpeditions.log.includes(expeditionId)) nextExpeditions.log.push(expeditionId);
+        nextMoney += expedition.completionBonus?.money || 0;
+        for (const [itemId, qty] of Object.entries(expedition.completionBonus?.items || {})) {
+          nextInventory = addItem(nextInventory, itemId, qty);
+        }
+      }
+
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          team: nextTeam,
+          inventory: nextInventory,
+          money: nextMoney,
+          expeditions: nextExpeditions,
+          questToast: success
+            ? `${phase.name} concluida! +${leadXp} XP no lider e +${sharedXp} XP no time.`
+            : `${phase.name} incompleta. Mesmo assim: +${leadXp} XP no lider e +${sharedXp} XP no time.`,
+        },
+      });
+      return true;
+    },
+
+    trainWithPokemon(targetUid, sourceUid) {
+      if (!targetUid || !sourceUid || targetUid === sourceUid) return false;
+      const targetInTeam = state.team.find((entry) => entry.uid === targetUid);
+      if (!targetInTeam) return false;
+
+      let source = state.storage.find((entry) => entry.uid === sourceUid);
+      let nextStorage = [...state.storage];
+      let nextTeam = [...state.team];
+      let sourceOrigin = 'storage';
+
+      if (source) {
+        nextStorage = nextStorage.filter((entry) => entry.uid !== sourceUid);
+      } else {
+        source = state.team.find((entry) => entry.uid === sourceUid);
+        sourceOrigin = 'team';
+        if (!source || source.uid === targetUid || state.team.length <= 1) return false;
+        nextTeam = nextTeam.filter((entry) => entry.uid !== sourceUid);
+      }
+
+      const targetAfterRemoval = nextTeam.find((entry) => entry.uid === targetUid);
+      if (!targetAfterRemoval || !source) return false;
+
+      const xpGain = Math.max(
+        180,
+        Math.floor(70 + (source.level || 1) * 56 + ((source.stats?.hp || 20) + (source.stats?.attack || 10)) * 0.9)
+      );
+      const trained = applyXp(targetAfterRemoval, xpGain).pokemon;
+      nextTeam = replaceTeamMember(nextTeam, targetUid, trained);
+
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          team: nextTeam,
+          storage: nextStorage,
+          questToast: `${targetAfterRemoval.name} recebeu ${xpGain} XP usando ${source.name} (${sourceOrigin}).`,
         },
       });
       return true;
@@ -2062,6 +2270,7 @@ export function GameProvider({ children }) {
     state.worldSystems,
     state.daycare,
     state.profile,
+    state.expeditions,
     state.pokedex,
     state.badges,
     state.tcg,

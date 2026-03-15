@@ -1,0 +1,111 @@
+export const EXPEDITIONS = {
+  oakwindScout: {
+    id: 'oakwindScout',
+    name: 'Expedicao Oakwind',
+    description: 'Treino base para iniciantes. Excelente para subir nivel rapido.',
+    unlockAreaId: 'route1',
+    phases: [
+      {
+        id: 'oakwind-1',
+        name: 'Fase 1: Patrulha da Route 1',
+        areaId: 'route1',
+        recommendedLevel: 6,
+        baseXp: 320,
+        rewardMoney: 180,
+      },
+      {
+        id: 'oakwind-2',
+        name: 'Fase 2: Limpeza da Sunleaf',
+        areaId: 'sunleafForest',
+        recommendedLevel: 9,
+        baseXp: 460,
+        rewardMoney: 260,
+      },
+      {
+        id: 'oakwind-3',
+        name: 'Fase 3: Resistir na Route 2',
+        areaId: 'route2',
+        recommendedLevel: 12,
+        baseXp: 620,
+        rewardMoney: 380,
+      },
+    ],
+    completionBonus: {
+      money: 800,
+      items: { superPotion: 2 },
+    },
+  },
+  coastSurvey: {
+    id: 'coastSurvey',
+    name: 'Expedicao Mist Coast',
+    description: 'Treino intermediario focado em resistencia e cobertura de tipo.',
+    unlockAreaId: 'azureCoast',
+    phases: [
+      {
+        id: 'coast-1',
+        name: 'Fase 1: Vigia da Costa',
+        areaId: 'azureCoast',
+        recommendedLevel: 15,
+        baseXp: 780,
+        rewardMoney: 500,
+      },
+      {
+        id: 'coast-2',
+        name: 'Fase 2: Rota de Caverna',
+        areaId: 'emberCave',
+        recommendedLevel: 18,
+        baseXp: 980,
+        rewardMoney: 680,
+      },
+      {
+        id: 'coast-3',
+        name: 'Fase 3: Travessia Ironpeak',
+        areaId: 'ironpeakPass',
+        recommendedLevel: 21,
+        baseXp: 1240,
+        rewardMoney: 860,
+      },
+    ],
+    completionBonus: {
+      money: 1600,
+      items: { revive: 1, pokeball: 4 },
+    },
+  },
+  frozenFrontier: {
+    id: 'frozenFrontier',
+    name: 'Expedicao Fronteira Gelida',
+    description: 'Treino avancado com alto ganho de XP para o time.',
+    unlockAreaId: 'crystalLake',
+    phases: [
+      {
+        id: 'frozen-1',
+        name: 'Fase 1: Coleta no Crystal Lake',
+        areaId: 'crystalLake',
+        recommendedLevel: 24,
+        baseXp: 1420,
+        rewardMoney: 920,
+      },
+      {
+        id: 'frozen-2',
+        name: 'Fase 2: Tempestade no Plateau',
+        areaId: 'thunderPlateau',
+        recommendedLevel: 27,
+        baseXp: 1760,
+        rewardMoney: 1160,
+      },
+      {
+        id: 'frozen-3',
+        name: 'Fase 3: Profundezas Glaciais',
+        areaId: 'glacierCavern',
+        recommendedLevel: 30,
+        baseXp: 2100,
+        rewardMoney: 1400,
+      },
+    ],
+    completionBonus: {
+      money: 2600,
+      items: { revive: 2, superPotion: 3 },
+    },
+  },
+};
+

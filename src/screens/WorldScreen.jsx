@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AREAS } from '../data/areas';
 import { TRAINERS } from '../data/trainers';
+import { EXPEDITIONS } from '../data/expeditions';
 import WorldMap from '../components/world/WorldMap';
 import QuestLogPanel from '../components/world/QuestLogPanel';
 import { SCREENS } from '../utils/constants';
@@ -33,6 +34,8 @@ export default function WorldScreen({ state, actions }) {
     npcs.map((npc) => [npc.id, getNpcQuestMarker({ npcId: npc.id, quests: state.quests })])
   );
   const [npcFrame, setNpcFrame] = useState(0);
+  const [expeditionLeadUid, setExpeditionLeadUid] = useState(state.team[0]?.uid || null);
+  const expeditions = Object.values(EXPEDITIONS);
 
   useEffect(() => {
     function onKeyDown(event) {
@@ -67,6 +70,16 @@ export default function WorldScreen({ state, actions }) {
     }, 260);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!state.team.length) {
+      setExpeditionLeadUid(null);
+      return;
+    }
+    if (!state.team.some((entry) => entry.uid === expeditionLeadUid)) {
+      setExpeditionLeadUid(state.team[0].uid);
+    }
+  }, [state.team, expeditionLeadUid]);
 
   return (
     <div className="screen">
@@ -138,6 +151,50 @@ export default function WorldScreen({ state, actions }) {
             <div className="mini-grid">
               <button onClick={actions.runBattleTower}>Rodar Battle Tower</button>
               <button onClick={actions.refreshDailyWorld}>Atualizar clima/evento</button>
+            </div>
+          </div>
+
+          <div className="panel">
+            <h3>Expedicoes (XP Principal)</h3>
+            <div className="mini-grid">
+              <span>Lider da expedicao:</span>
+              <select value={expeditionLeadUid || ''} onChange={(event) => setExpeditionLeadUid(event.target.value)}>
+                {state.team.map((pokemon) => (
+                  <option key={pokemon.uid} value={pokemon.uid}>
+                    {pokemon.name} (Lv {pokemon.level})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="stack">
+              {expeditions.map((expedition) => {
+                const phaseIndex = Number(state.expeditions?.progress?.[expedition.id] || 0);
+                const isDone = phaseIndex >= expedition.phases.length;
+                const unlocked = discoveredAreas.includes(expedition.unlockAreaId);
+                const phase = expedition.phases[phaseIndex];
+                const phaseAreaKnown = phase ? discoveredAreas.includes(phase.areaId) : true;
+                return (
+                  <div key={expedition.id} className="quest-card">
+                    <strong>{expedition.name}</strong>
+                    <small>{expedition.description}</small>
+                    <small>
+                      Progresso: {Math.min(phaseIndex, expedition.phases.length)}/{expedition.phases.length}
+                    </small>
+                    {!isDone && phase && (
+                      <small>
+                        Atual: {phase.name} | Area: {AREAS[phase.areaId]?.name || phase.areaId} | Lv sugerido {phase.recommendedLevel}
+                      </small>
+                    )}
+                    {isDone && <small>Concluida.</small>}
+                    <button
+                      onClick={() => actions.runExpedition(expedition.id, expeditionLeadUid)}
+                      disabled={!expeditionLeadUid || !unlocked || isDone || !phaseAreaKnown}
+                    >
+                      {isDone ? 'Concluida' : 'Executar fase'}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
 

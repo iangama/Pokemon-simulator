@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import TeamMemberCard from './TeamMemberCard';
 import { ITEMS } from '../../data/items';
 
@@ -13,6 +13,7 @@ function sumStats(team = []) {
 
 export default function TeamPanel({
   team,
+  storage = [],
   daycare,
   onUsePotion,
   onEvolve,
@@ -21,12 +22,33 @@ export default function TeamPanel({
   onDepositDaycare,
   onWithdrawDaycare,
   onHatchEgg,
+  onTrainWithPokemon,
 }) {
   const [simA, setSimA] = useState([]);
   const [simB, setSimB] = useState([]);
+  const [targetUid, setTargetUid] = useState(team[0]?.uid || null);
 
   const simAStats = useMemo(() => sumStats(team.filter((pokemon) => simA.includes(pokemon.uid))), [team, simA]);
   const simBStats = useMemo(() => sumStats(team.filter((pokemon) => simB.includes(pokemon.uid))), [team, simB]);
+  const trainSources = useMemo(
+    () => [
+      ...storage.map((pokemon) => ({ pokemon, origin: 'storage' })),
+      ...team
+        .filter((pokemon) => pokemon.uid !== targetUid && team.length > 1)
+        .map((pokemon) => ({ pokemon, origin: 'team' })),
+    ],
+    [storage, team, targetUid]
+  );
+
+  useEffect(() => {
+    if (!team.length) {
+      setTargetUid(null);
+      return;
+    }
+    if (!team.some((pokemon) => pokemon.uid === targetUid)) {
+      setTargetUid(team[0].uid);
+    }
+  }, [team, targetUid]);
 
   function toggleSim(setter, selected, uid) {
     if (selected.includes(uid)) {
@@ -97,6 +119,37 @@ export default function TeamPanel({
           <strong>Formacao B ({simB.length}/3)</strong>
           <small>HP {simBStats.hp} | ATK {simBStats.attack} | DEF {simBStats.defense} | SPD {simBStats.speed}</small>
         </div>
+      </div>
+
+      <h3>Treinamento por Transferencia de XP</h3>
+      <div className="quest-card">
+        <div className="mini-grid">
+          <span>Pokemon alvo:</span>
+          <select value={targetUid || ''} onChange={(event) => setTargetUid(event.target.value)}>
+            {team.map((pokemon) => (
+              <option key={pokemon.uid} value={pokemon.uid}>
+                {pokemon.name} (Lv {pokemon.level})
+              </option>
+            ))}
+          </select>
+        </div>
+        <small>
+          Use um Pokemon do storage (ou do proprio time) para conceder muito XP ao alvo.
+          O Pokemon usado sera consumido.
+        </small>
+      </div>
+      <div className="mini-grid">
+        {trainSources.map(({ pokemon, origin }) => (
+          <span key={`${origin}-${pokemon.uid}`} className="list-row">
+            <span>
+              {pokemon.name} Lv {pokemon.level} ({origin === 'storage' ? 'storage' : 'time'})
+            </span>
+            <button onClick={() => onTrainWithPokemon?.(targetUid, pokemon.uid)} disabled={!targetUid}>
+              Treinar alvo
+            </button>
+          </span>
+        ))}
+        {!trainSources.length && <span className="list-row">Sem Pokemon disponiveis para transferencia.</span>}
       </div>
     </div>
   );

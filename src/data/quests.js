@@ -70,7 +70,7 @@ export const QUESTS = {
         areaId: 'oakwindTown',
       },
     ],
-    rewards: { money: 200, items: { potion: 2 } },
+    rewards: { money: 200, teamXp: 80, items: { potion: 2 } },
     prerequisites: [],
   },
   tutorialGetBalls: {
@@ -94,7 +94,7 @@ export const QUESTS = {
         areaId: 'itemShop',
       },
     ],
-    rewards: { items: { pokeball: 5 } },
+    rewards: { teamXp: 90, items: { pokeball: 5 } },
     prerequisites: ['tutorialMeetCedar'],
   },
   tutorialEnterRoute1: {
@@ -114,7 +114,7 @@ export const QUESTS = {
         label: 'Entre na Route 1.',
       },
     ],
-    rewards: { money: 150 },
+    rewards: { money: 150, teamXp: 110 },
     prerequisites: ['tutorialGetBalls'],
   },
   tutorialFirstCapture: {
@@ -134,7 +134,7 @@ export const QUESTS = {
         label: 'Capture 1 Pokemon na Route 1.',
       },
     ],
-    rewards: { items: { potion: 2 } },
+    rewards: { teamXp: 150, items: { potion: 2 } },
     prerequisites: ['tutorialEnterRoute1'],
   },
   tutorialDefeatTwoTrainers: {
@@ -154,7 +154,7 @@ export const QUESTS = {
         label: 'Derrote 2 treinadores.',
       },
     ],
-    rewards: { money: 500, items: { superPotion: 2 } },
+    rewards: { money: 500, teamXp: 230, items: { superPotion: 2 } },
     prerequisites: ['tutorialFirstCapture'],
   },
   tutorialReportToCedar: {
@@ -177,7 +177,7 @@ export const QUESTS = {
         areaId: 'oakwindTown',
       },
     ],
-    rewards: { money: 900, flags: ['TUTORIAL_COMPLETE', 'MIST_COAST_PASS'] },
+    rewards: { money: 900, teamXp: 320, flags: ['TUTORIAL_COMPLETE', 'MIST_COAST_PASS'] },
     prerequisites: ['tutorialDefeatTwoTrainers'],
   },
   mistvaleArrival: {
@@ -197,7 +197,7 @@ export const QUESTS = {
         label: 'Chegue em Mistvale Town.',
       },
     ],
-    rewards: { money: 450 },
+    rewards: { money: 450, teamXp: 260 },
     prerequisites: ['tutorialReportToCedar'],
   },
   coastPatrol: {
@@ -219,7 +219,7 @@ export const QUESTS = {
         label: 'Derrote 1 treinador em Azure Coast.',
       },
     ],
-    rewards: { money: 700, items: { pokeball: 4, superPotion: 1 } },
+    rewards: { money: 700, teamXp: 340, items: { pokeball: 4, superPotion: 1 } },
     prerequisites: ['mistvaleArrival'],
   },
   emberPermit: {
@@ -249,7 +249,7 @@ export const QUESTS = {
         areaId: 'emberCave',
       },
     ],
-    rewards: { money: 800, flags: ['EMBER_RANGE_PASS'] },
+    rewards: { money: 800, teamXp: 420, flags: ['EMBER_RANGE_PASS'] },
     prerequisites: ['coastPatrol'],
   },
   ironpeakScout: {
@@ -275,7 +275,7 @@ export const QUESTS = {
         label: 'Capture 2 Pokemon em Ironpeak Pass.',
       },
     ],
-    rewards: { money: 1200, items: { pokeball: 6, revive: 1 } },
+    rewards: { money: 1200, teamXp: 520, items: { pokeball: 6, revive: 1 } },
     prerequisites: ['emberPermit'],
   },
   collectorRoute1: {
@@ -294,7 +294,7 @@ export const QUESTS = {
         label: 'Capture 3 Pokemon na Route 1.',
       },
     ],
-    rewards: { money: 300, items: { pokeball: 3 } },
+    rewards: { money: 300, teamXp: 140, items: { pokeball: 3 } },
     prerequisites: ['tutorialFirstCapture'],
   },
   collectorSunleaf: {
@@ -313,7 +313,7 @@ export const QUESTS = {
         label: 'Capture 2 Pokemon em Sunleaf Forest.',
       },
     ],
-    rewards: { money: 450, items: { potion: 2 } },
+    rewards: { money: 450, teamXp: 190, items: { potion: 2 } },
     prerequisites: ['tutorialEnterRoute1'],
   },
   collectorAzure: {
@@ -332,7 +332,7 @@ export const QUESTS = {
         label: 'Capture 3 Pokemon em Azure Coast.',
       },
     ],
-    rewards: { money: 650, items: { superPotion: 2 } },
+    rewards: { money: 650, teamXp: 260, items: { superPotion: 2 } },
     prerequisites: ['mistvaleArrival'],
   },
   collectorIronpeak: {
@@ -351,7 +351,7 @@ export const QUESTS = {
         label: 'Capture 2 Pokemon em Ironpeak Pass.',
       },
     ],
-    rewards: { money: 900, items: { revive: 1 } },
+    rewards: { money: 900, teamXp: 320, items: { revive: 1 } },
     prerequisites: ['emberPermit'],
   },
 };

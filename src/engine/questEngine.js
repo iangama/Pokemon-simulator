@@ -370,6 +370,8 @@ export function getQuestByFlagUnlock(flag) {
 export function rewardsLabel(rewards = {}) {
   const parts = [];
   if (rewards.money) parts.push(`$${rewards.money}`);
+  if (rewards.teamXp) parts.push(`Team XP +${rewards.teamXp}`);
+  if (rewards.leadXp) parts.push(`Lead XP +${rewards.leadXp}`);
   for (const [itemId, qty] of Object.entries(rewards.items || {})) {
     parts.push(`${itemId} x${qty}`);
   }
