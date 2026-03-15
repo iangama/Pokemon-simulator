@@ -583,6 +583,33 @@ async function withTimeout(promise, ms, fallback = null) {
   }
 }
 
+async function syncTeamEvolutionReadiness(team = []) {
+  let changed = false;
+  const nextTeam = await Promise.all(
+    (team || []).map(async (member) => {
+      if (!member?.evolutionChainUrl) return member;
+      try {
+        const chain = await withTimeout(fetchEvolutionChainByUrl(member.evolutionChainUrl), 4000, null);
+        if (!chain) return member;
+        const readiness = getEvolutionReadiness(chain, member);
+        const nextEvolutionLevel = readiness.requiredLevel ?? member.nextEvolutionLevel;
+        if (member.evolutionReady === readiness.canEvolve && member.nextEvolutionLevel === nextEvolutionLevel) {
+          return member;
+        }
+        changed = true;
+        return {
+          ...member,
+          evolutionReady: readiness.canEvolve,
+          nextEvolutionLevel,
+        };
+      } catch (_error) {
+        return member;
+      }
+    })
+  );
+  return { nextTeam, changed };
+}
+
 export function GameProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
@@ -1280,24 +1307,8 @@ export function GameProvider({ children }) {
 
       let nextTeam = reward.playerTeam;
 
-      const evolvedChecks = await Promise.all(
-        nextTeam.map(async (member) => {
-          if (!member.evolutionChainUrl) return member;
-          try {
-            const chain = await withTimeout(fetchEvolutionChainByUrl(member.evolutionChainUrl), 4000, null);
-            if (!chain) return member;
-            const readiness = getEvolutionReadiness(chain, member);
-            return {
-              ...member,
-              evolutionReady: readiness.canEvolve,
-              nextEvolutionLevel: readiness.requiredLevel ?? member.nextEvolutionLevel,
-            };
-          } catch (_error) {
-            return member;
-          }
-        })
-      );
-      nextTeam = evolvedChecks;
+      const readinessResult = await syncTeamEvolutionReadiness(nextTeam);
+      nextTeam = readinessResult.nextTeam;
       let pendingMoveLearn = null;
       const levelUps = reward.levelUpsByPokemon || {};
       for (const [uid, levelInfo] of Object.entries(levelUps)) {
@@ -1848,7 +1859,7 @@ export function GameProvider({ children }) {
       return true;
     },
 
-    runExpedition(expeditionId, memberUid) {
+    async runExpedition(expeditionId, memberUid) {
       const expedition = EXPEDITIONS[expeditionId];
       if (!expedition) return false;
 
@@ -1879,10 +1890,12 @@ export function GameProvider({ children }) {
       const success = Math.random() <= successChance;
       const leadXp = success ? phase.baseXp : Math.max(120, Math.floor(phase.baseXp * 0.45));
       const sharedXp = Math.max(40, Math.floor(leadXp * 0.24));
-      const nextTeam = state.team.map((member) => {
+      let nextTeam = state.team.map((member) => {
         const gain = member.uid === lead.uid ? leadXp : sharedXp;
         return applyXp(member, gain).pokemon;
       });
+      const readinessResult = await syncTeamEvolutionReadiness(nextTeam);
+      nextTeam = readinessResult.nextTeam;
 
       let nextInventory = { ...state.inventory };
       let nextMoney = state.money;
@@ -1921,7 +1934,7 @@ export function GameProvider({ children }) {
       return true;
     },
 
-    trainWithPokemon(targetUid, sourceUid) {
+    async trainWithPokemon(targetUid, sourceUid) {
       if (!targetUid || !sourceUid || targetUid === sourceUid) return false;
       const targetInTeam = state.team.find((entry) => entry.uid === targetUid);
       if (!targetInTeam) return false;
@@ -1949,6 +1962,8 @@ export function GameProvider({ children }) {
       );
       const trained = applyXp(targetAfterRemoval, xpGain).pokemon;
       nextTeam = replaceTeamMember(nextTeam, targetUid, trained);
+      const readinessResult = await syncTeamEvolutionReadiness(nextTeam);
+      nextTeam = readinessResult.nextTeam;
 
       dispatch({
         type: 'PATCH',
@@ -1959,6 +1974,13 @@ export function GameProvider({ children }) {
         },
       });
       return true;
+    },
+
+    async refreshEvolutionReadiness() {
+      if (!state.team?.length) return;
+      const readinessResult = await syncTeamEvolutionReadiness(state.team);
+      if (!readinessResult.changed) return;
+      dispatch({ type: 'PATCH', payload: { team: readinessResult.nextTeam } });
     },
 
     async challengeAreaBoss() {

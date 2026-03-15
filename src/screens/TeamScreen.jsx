@@ -1,6 +1,11 @@
+import { useEffect } from 'react';
 import TeamPanel from '../components/team/TeamPanel';
 
 export default function TeamScreen({ state, actions }) {
+  useEffect(() => {
+    actions.refreshEvolutionReadiness?.();
+  }, [state.team]);
+
   return (
     <div className="screen">
       <TeamPanel
