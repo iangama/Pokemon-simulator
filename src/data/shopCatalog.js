@@ -1,0 +1,15 @@
+export const SHOP_CATALOG = [
+  'pokeball',
+  'potion',
+  'superPotion',
+  'revive',
+  'antidote',
+  'xAttack',
+  'guardSpec',
+  'fullHeal',
+  'fireStone',
+  'waterStone',
+  'thunderStone',
+  'leafStone',
+  'moonStone',
+];
