@@ -26,10 +26,12 @@ import EvolutionModal from './components/battle/EvolutionModal';
 import LevelUpModal from './components/battle/LevelUpModal';
 import AreaTransition from './components/world/AreaTransition';
 import MoveLearnModal from './components/team/MoveLearnModal';
+import { getTrackedQuestGuidance, rewardsLabel } from './engine/questEngine';
 
 function GameShell() {
   const { state, actions } = useGameStore();
   const [lastArea, setLastArea] = useState(state.world.areaId);
+  const guidance = getTrackedQuestGuidance(state.quests);
 
   useEffect(() => {
     actions.bootstrap();
@@ -41,6 +43,18 @@ function GameShell() {
     }
   }, [state.world.areaId, lastArea]);
 
+  useEffect(() => {
+    if (!state.questToast) return undefined;
+    const id = setTimeout(() => actions.clearQuestToast(), 2500);
+    return () => clearTimeout(id);
+  }, [state.questToast, actions]);
+
+  useEffect(() => {
+    if (!state.achievementToast) return undefined;
+    const id = setTimeout(() => actions.clearAchievementToast(), 2600);
+    return () => clearTimeout(id);
+  }, [state.achievementToast, actions]);
+
   const navVisible = ![SCREENS.TITLE, SCREENS.NEW_GAME, SCREENS.CONTINUE_GAME].includes(state.screen);
 
   return (
@@ -51,18 +65,33 @@ function GameShell() {
       </header>
 
       {navVisible && (
-        <nav className="menu-bar">
-          <button onClick={() => actions.setScreen(SCREENS.WORLD)}>World</button>
-          <button onClick={() => actions.setScreen(SCREENS.TEAM)}>Team</button>
-          <button onClick={() => actions.setScreen(SCREENS.INVENTORY)}>Bag</button>
-          <button onClick={() => actions.setScreen(SCREENS.POKEDEX)}>Pokedex</button>
-          <button onClick={() => actions.setScreen(SCREENS.STORAGE)}>Storage</button>
-          <button onClick={() => actions.setScreen(SCREENS.SHOP)}>Shop</button>
-          <button onClick={() => actions.setScreen(SCREENS.CENTER)}>Center</button>
-          <button onClick={() => actions.setScreen(SCREENS.GYM)}>Gym</button>
-          <button onClick={() => actions.setScreen(SCREENS.TCG)}>TCG</button>
-          <button onClick={() => actions.setScreen(SCREENS.SETTINGS)}>Settings</button>
-        </nav>
+        <>
+          <div className="main-objective">
+            {guidance ? (
+              <>
+                <div>
+                  <strong>Objetivo atual:</strong> {guidance.objectiveText}
+                </div>
+                <button onClick={() => actions.setScreen(SCREENS.WORLD)}>Mostrar no mapa</button>
+              </>
+            ) : (
+              <div><strong>Objetivo atual:</strong> Nenhuma quest principal ativa.</div>
+            )}
+          </div>
+
+          <nav className="menu-bar">
+            <button onClick={() => actions.setScreen(SCREENS.WORLD)}>World</button>
+            <button onClick={() => actions.setScreen(SCREENS.TEAM)}>Team</button>
+            <button onClick={() => actions.setScreen(SCREENS.INVENTORY)}>Bag</button>
+            <button onClick={() => actions.setScreen(SCREENS.POKEDEX)}>Pokedex</button>
+            <button onClick={() => actions.setScreen(SCREENS.STORAGE)}>Storage</button>
+            <button onClick={() => actions.setScreen(SCREENS.SHOP)}>Shop</button>
+            <button onClick={() => actions.setScreen(SCREENS.CENTER)}>Center</button>
+            <button onClick={() => actions.setScreen(SCREENS.GYM)}>Gym</button>
+            <button onClick={() => actions.setScreen(SCREENS.TCG)}>TCG</button>
+            <button onClick={() => actions.setScreen(SCREENS.SETTINGS)}>Settings</button>
+          </nav>
+        </>
       )}
 
       <main>
@@ -102,6 +131,8 @@ function GameShell() {
       </main>
 
       <DialogueBox text={state.error} />
+      {state.questToast && <div className="quest-toast">{state.questToast}</div>}
+      {state.achievementToast && <div className="achievement-toast">{state.achievementToast}</div>}
       <AreaTransition from={lastArea} to={state.world.areaId} />
       <LevelUpModal pokemon={state.pendingLevelUp} onClose={actions.clearPopups} />
       <EvolutionModal evolution={state.pendingEvolution} onClose={actions.clearPopups} />
@@ -111,6 +142,17 @@ function GameShell() {
         onLearn={actions.learnPendingMove}
         onSkip={actions.skipPendingMove}
       />
+      {state.questPopup && (
+        <div className="modal">
+          <div className="panel quest-popup">
+            <h3>{state.questPopup.title}</h3>
+            <p>{state.questPopup.description}</p>
+            <p><strong>Recompensas:</strong> {rewardsLabel(state.questPopup.rewards)}</p>
+            {state.questPopup.nextHint && <p><strong>Proximo objetivo:</strong> {state.questPopup.nextHint}</p>}
+            <button onClick={actions.dismissQuestPopup}>Continuar</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

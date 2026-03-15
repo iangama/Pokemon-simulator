@@ -28,9 +28,34 @@ import { AREAS } from '../data/areas';
 import { TRAINERS } from '../data/trainers';
 import { GYMS } from '../data/gyms';
 import { ITEMS } from '../data/items';
+import { SHOP_CATALOG } from '../data/shopCatalog';
 import { AREA_MAPS, MAP_PRESETS, getMapPresetById, getTileAt, findExit } from '../data/areaMaps';
 import { getItemEvolutionsForSpecies } from '../data/evolutionItems';
 import { QUESTS, WORLD_NPCS } from '../data/quests';
+import {
+  AREA_BOSSES,
+  CRAFTING_RECIPES,
+  DAILY_WORLD_EVENTS,
+  FISHING_TABLES,
+  QUEST_PATH_CHOICES,
+  TUTORIAL_TIPS,
+  WEATHER_BY_DAY,
+  NPC_TRADE_OFFERS,
+} from '../data/worldSystems';
+import {
+  createQuestState,
+  normalizeQuestState,
+  resolveQuestEvent,
+  trackQuest as trackQuestState,
+  getTrackedQuestGuidance,
+  getQuestByFlagUnlock,
+} from '../engine/questEngine';
+import {
+  createAchievementState,
+  normalizeAchievementState,
+  resolveAchievementEvent,
+} from '../engine/achievementEngine';
+import { pickWeighted, randomInt } from '../utils/random';
 
 const GameContext = createContext(null);
 
@@ -53,6 +78,7 @@ const initialState = {
     defeatedTrainers: {},
     gymsDefeated: {},
     npcFlags: {},
+    discoveredAreas: ['oakwindTown'],
   },
   team: [],
   storage: [],
@@ -71,10 +97,36 @@ const initialState = {
   battleSummary: null,
   captureSummary: null,
   importStatus: null,
-  quests: {
-    active: {},
-    completed: {},
-    log: [],
+  quests: createQuestState(),
+  questToast: null,
+  questPopup: null,
+  reputation: {
+    oakwind: 0,
+    mistCoast: 0,
+    ironpeak: 0,
+  },
+  achievements: createAchievementState(),
+  achievementToast: null,
+  worldSystems: {
+    dayKey: null,
+    weather: 'clear',
+    timeOfDay: 'day',
+    dailyEventId: null,
+    shopStock: [...SHOP_CATALOG],
+    bossesDefeated: {},
+    tutorialTipsSeen: {},
+    pathChoice: 'balanced',
+    pathChoiceSelected: false,
+    tradeCompleted: {},
+    tower: { streak: 0, bestStreak: 0, rank: 'Bronze' },
+  },
+  daycare: {
+    slots: [],
+    eggs: [],
+    steps: 0,
+  },
+  profile: {
+    codexViewedNpcs: {},
   },
   tcg: {
     collection: {},
@@ -135,6 +187,12 @@ function ensureMinimumInventory(inventory = {}) {
     thunderStone: Math.max(0, inventory.thunderStone || 0),
     leafStone: Math.max(0, inventory.leafStone || 0),
     moonStone: Math.max(0, inventory.moonStone || 0),
+    oldRod: Math.max(1, inventory.oldRod || 0),
+    goodRod: Math.max(0, inventory.goodRod || 0),
+    apricorn: Math.max(4, inventory.apricorn || 0),
+    scrapMetal: Math.max(3, inventory.scrapMetal || 0),
+    herbBundle: Math.max(3, inventory.herbBundle || 0),
+    crystalDust: Math.max(1, inventory.crystalDust || 0),
   };
 }
 
@@ -176,6 +234,14 @@ function tileHasNpc(areaId, x, y) {
   return npcs.find((npc) => npc.x === x && npc.y === y) || null;
 }
 
+function isBlockingTile(tile) {
+  return ['#', '~', 't', '$'].includes(tile);
+}
+
+function isEncounterTile(tile) {
+  return tile === 'g' || tile === 'h';
+}
+
 function adjustEnemyLevel(baseLevel, mapPresetId) {
   const preset = getMapPresetById(mapPresetId);
   return Math.max(2, Math.min(100, baseLevel + (preset.levelModifier || 0)));
@@ -206,6 +272,221 @@ function applyQuestRewards({ inventory, money }, rewards = {}) {
   return { inventory: nextInventory, money: nextMoney };
 }
 
+function ensureDiscoveredAreas(world = {}) {
+  const current = world.areaId || 'oakwindTown';
+  const discovered = new Set(world.discoveredAreas || []);
+  discovered.add(current);
+  return Array.from(discovered);
+}
+
+function addReputation(reputation = {}, regionId, amount = 0) {
+  if (!regionId || !amount) return reputation;
+  return {
+    ...reputation,
+    [regionId]: Math.max(0, (reputation[regionId] || 0) + amount),
+  };
+}
+
+function nowKey() {
+  const date = new Date();
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function currentTimeOfDay() {
+  const hour = new Date().getHours();
+  if (hour < 6) return 'night';
+  if (hour < 12) return 'morning';
+  if (hour < 18) return 'day';
+  return 'night';
+}
+
+function dailyWorldSnapshot() {
+  const dayKey = nowKey();
+  const hash = [...dayKey].reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const weather = WEATHER_BY_DAY[hash % WEATHER_BY_DAY.length] || 'clear';
+  const dailyEvent = DAILY_WORLD_EVENTS[hash % DAILY_WORLD_EVENTS.length] || DAILY_WORLD_EVENTS[0];
+  const rotated = [...SHOP_CATALOG].sort((a, b) => ((a.charCodeAt(0) + hash) % 13) - ((b.charCodeAt(0) + hash) % 13));
+  const shopStock = rotated.slice(0, Math.min(rotated.length, 10));
+  return {
+    dayKey,
+    weather,
+    timeOfDay: currentTimeOfDay(),
+    dailyEventId: dailyEvent?.id || null,
+    shopStock,
+  };
+}
+
+function normalizeWorldSystems(raw = {}) {
+  const snapshot = dailyWorldSnapshot();
+  const next = {
+    dayKey: raw.dayKey || snapshot.dayKey,
+    weather: raw.weather || snapshot.weather,
+    timeOfDay: raw.timeOfDay || snapshot.timeOfDay,
+    dailyEventId: raw.dailyEventId || snapshot.dailyEventId,
+    shopStock: Array.isArray(raw.shopStock) && raw.shopStock.length ? raw.shopStock : snapshot.shopStock,
+    bossesDefeated: { ...(raw.bossesDefeated || {}) },
+    tutorialTipsSeen: { ...(raw.tutorialTipsSeen || {}) },
+    pathChoice: raw.pathChoice || 'balanced',
+    pathChoiceSelected: !!raw.pathChoiceSelected,
+    tradeCompleted: { ...(raw.tradeCompleted || {}) },
+    tower: {
+      streak: Number(raw.tower?.streak || 0),
+      bestStreak: Number(raw.tower?.bestStreak || 0),
+      rank: raw.tower?.rank || 'Bronze',
+    },
+  };
+
+  if (next.dayKey !== snapshot.dayKey) {
+    next.dayKey = snapshot.dayKey;
+    next.weather = snapshot.weather;
+    next.timeOfDay = snapshot.timeOfDay;
+    next.dailyEventId = snapshot.dailyEventId;
+    next.shopStock = snapshot.shopStock;
+  } else {
+    next.timeOfDay = snapshot.timeOfDay;
+  }
+  return next;
+}
+
+function normalizeDaycare(raw = {}) {
+  return {
+    slots: Array.isArray(raw.slots) ? raw.slots : [],
+    eggs: Array.isArray(raw.eggs) ? raw.eggs : [],
+    steps: Number(raw.steps || 0),
+  };
+}
+
+function applyOutsideStatusStep(team = []) {
+  if (!team.length) return { team, damaged: false };
+  const lead = team[0];
+  if (lead?.status !== 'poison') return { team, damaged: false };
+  const loss = Math.max(1, Math.floor((lead.stats?.hp || 20) * 0.04));
+  const nextLead = {
+    ...lead,
+    currentHp: Math.max(1, (lead.currentHp || 1) - loss),
+    fainted: false,
+  };
+  const nextTeam = [...team];
+  nextTeam[0] = nextLead;
+  return { team: nextTeam, damaged: true };
+}
+
+function pathChoiceModifier(worldSystems) {
+  const found = QUEST_PATH_CHOICES.find((choice) => choice.id === worldSystems?.pathChoice);
+  return found?.rewardsMod || { money: 1, encounterRate: 1 };
+}
+
+function explorationEncounterModifier(team = []) {
+  const lead = team[0];
+  const abilities = lead?.abilities || [];
+  if (abilities.includes('intimidate') || abilities.includes('keen-eye')) return 0.9;
+  if (abilities.includes('static') || abilities.includes('lightning-rod')) return 1.08;
+  return 1;
+}
+
+function chooseFishingEntry(areaId, rodKind, weather, dailyEvent) {
+  const table = FISHING_TABLES[areaId]?.[rodKind] || [];
+  if (!table.length) return null;
+  const boosted = table.map((entry) => {
+    const isRare = entry.weight <= 12;
+    const bonus = isRare ? (dailyEvent?.fishingRareBoost || 0) : 0;
+    return {
+      ...entry,
+      weight: Math.max(1, Math.floor(entry.weight * (1 + bonus))),
+    };
+  });
+  const pick = pickWeighted(boosted);
+  const weatherBoost = weather === 'rainy' && ['water', 'electric'].some((slug) => pick.species.includes(slug)) ? 1 : 0;
+  const level = randomInt(pick.minLevel, pick.maxLevel + weatherBoost);
+  return { species: pick.species, level: Math.min(100, level) };
+}
+
+function getAreaBossById(bossId) {
+  return Object.values(AREA_BOSSES).find((entry) => entry.id === bossId) || null;
+}
+
+function rankByStreak(streak = 0) {
+  if (streak >= 25) return 'Master';
+  if (streak >= 15) return 'Ultra';
+  if (streak >= 8) return 'Great';
+  return 'Bronze';
+}
+
+function advanceDaycare(daycare, team, steps = 1) {
+  const next = normalizeDaycare(daycare);
+  next.steps += steps;
+  let nextTeam = [...team];
+
+  if (next.slots.length > 0 && next.steps % 8 === 0) {
+    for (const slot of next.slots) {
+      const idx = nextTeam.findIndex((entry) => entry.uid === slot.uid);
+      if (idx < 0) continue;
+      const member = nextTeam[idx];
+      const gain = Math.max(4, Math.floor((member.level || 1) / 2));
+      const xpResult = applyXp(member, gain);
+      nextTeam[idx] = xpResult.pokemon;
+    }
+  }
+
+  if (next.slots.length >= 2 && next.steps % 24 === 0 && next.eggs.length < 3) {
+    const [a, b] = next.slots;
+    next.eggs.push({
+      id: `egg-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+      species: Math.random() < 0.5 ? a.species : b.species,
+      hatchSteps: 12 + Math.floor(Math.random() * 8),
+      progress: 0,
+    });
+  }
+
+  next.eggs = next.eggs.map((egg) => ({ ...egg, progress: egg.progress + steps }));
+  const hatchable = next.eggs.filter((egg) => egg.progress >= egg.hatchSteps);
+  next.eggs = next.eggs.filter((egg) => egg.progress < egg.hatchSteps);
+
+  return { daycare: next, team: nextTeam, hatchable };
+}
+
+function normalizeLoadedState(save = {}) {
+  const normalizedWorld = {
+    ...(save.world || {}),
+    discoveredAreas: ensureDiscoveredAreas(save.world || {}),
+  };
+  const baseReputation = {
+    oakwind: 0,
+    mistCoast: 0,
+    ironpeak: 0,
+  };
+  return {
+    ...save,
+    world: normalizedWorld,
+    quests: normalizeQuestState(save.quests),
+    reputation: { ...baseReputation, ...(save.reputation || {}) },
+    achievements: normalizeAchievementState(save.achievements),
+    worldSystems: normalizeWorldSystems(save.worldSystems),
+    daycare: normalizeDaycare(save.daycare),
+    profile: {
+      codexViewedNpcs: { ...(save.profile?.codexViewedNpcs || {}) },
+    },
+    questToast: null,
+    questPopup: null,
+    achievementToast: null,
+  };
+}
+
+function lockMessageForArea(nextAreaId, worldFlags = []) {
+  const area = AREAS[nextAreaId];
+  if (!area?.requires?.length) return 'Esta area esta bloqueada no momento.';
+  const missing = area.requires.filter((flag) => !worldFlags.includes(flag));
+  if (!missing.length) return 'Esta area esta bloqueada no momento.';
+  const quest = getQuestByFlagUnlock(missing[0]);
+  if (quest?.name) {
+    return `Voce precisa concluir \"${quest.name}\" para entrar em ${area.name}.`;
+  }
+  return `Voce precisa liberar ${missing[0]} para entrar em ${area.name}.`;
+}
+
 async function withTimeout(promise, ms, fallback = null) {
   let timerId;
   try {
@@ -223,7 +504,79 @@ async function withTimeout(promise, ms, fallback = null) {
 export function GameProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  const actions = useMemo(() => ({
+  const actions = useMemo(() => {
+    function syncWorldSystems(currentSystems = state.worldSystems) {
+      return normalizeWorldSystems(currentSystems);
+    }
+
+    function getDailyEvent(systems = state.worldSystems) {
+      return DAILY_WORLD_EVENTS.find((entry) => entry.id === systems?.dailyEventId) || DAILY_WORLD_EVENTS[0] || null;
+    }
+
+    function markTutorialTipSeen(systems, tipId) {
+      if (!tipId) return systems;
+      return {
+        ...systems,
+        tutorialTipsSeen: {
+          ...(systems.tutorialTipsSeen || {}),
+          [tipId]: true,
+        },
+      };
+    }
+
+    function resolveQuestRuntime({
+      event,
+      quests = state.quests,
+      world = state.world,
+      inventory = state.inventory,
+      money = state.money,
+      reputation = state.reputation,
+    }) {
+      const resolved = resolveQuestEvent({ quests, event });
+      let nextInventory = inventory;
+      let nextMoney = money;
+      let nextWorld = { ...world, flags: [...(world.flags || [])] };
+      let nextReputation = { ...reputation };
+      let popup = null;
+
+      for (const questId of resolved.completedQuestIds) {
+        const quest = QUESTS[questId];
+        if (!quest) continue;
+        const moneyMod = pathChoiceModifier(state.worldSystems).money || 1;
+        const adjustedRewards = {
+          ...(quest.rewards || {}),
+          money: Math.floor((quest.rewards?.money || 0) * moneyMod),
+        };
+        const rewarded = applyQuestRewards({ inventory: nextInventory, money: nextMoney }, adjustedRewards);
+        nextInventory = rewarded.inventory;
+        nextMoney = rewarded.money;
+        for (const flag of quest.rewards?.flags || []) {
+          if (!nextWorld.flags.includes(flag)) nextWorld.flags.push(flag);
+        }
+        const firstObjectiveArea = quest.objectives?.[0]?.areaId || quest.turnInAreaId || null;
+        const regionId = firstObjectiveArea ? AREAS[firstObjectiveArea]?.region : null;
+        nextReputation = addReputation(nextReputation, regionId, 4);
+        popup = {
+          title: `Quest concluida: ${quest.name}`,
+          description: quest.description,
+          rewards: adjustedRewards,
+          nextHint: getTrackedQuestGuidance(resolved.quests)?.hint || null,
+        };
+      }
+
+      return {
+        quests: resolved.quests,
+        world: nextWorld,
+        inventory: nextInventory,
+        money: nextMoney,
+        reputation: nextReputation,
+        questToast: resolved.progressToasts.at(-1) || null,
+        questPopup: popup,
+        completedQuestCount: resolved.completedQuestIds.length,
+      };
+    }
+
+    return ({
     setScreen(screen) {
       dispatch({ type: 'SET_SCREEN', payload: screen });
     },
@@ -235,15 +588,17 @@ export function GameProvider({ children }) {
         dispatch({ type: 'PATCH', payload: { saveSlots: slots, activeSaveSlot: 1 } });
         return;
       }
+      const normalizedSave = normalizeLoadedState(save);
       dispatch({
         type: 'SET_STATE',
         payload: {
-          ...save,
+          ...normalizedSave,
+          worldSystems: syncWorldSystems(normalizedSave.worldSystems),
           activeSaveSlot: slot,
           saveSlots: slots,
-          inventory: ensureMinimumInventory(save.inventory),
-          team: (save.team || []).map(normalizePokemonForBattle),
-          storage: (save.storage || []).map(normalizePokemonForBattle),
+          inventory: ensureMinimumInventory(normalizedSave.inventory),
+          team: (normalizedSave.team || []).map(normalizePokemonForBattle),
+          storage: (normalizedSave.storage || []).map(normalizePokemonForBattle),
         },
       });
       dispatch({ type: 'SET_SCREEN', payload: SCREENS.CONTINUE_GAME });
@@ -264,9 +619,23 @@ export function GameProvider({ children }) {
             ...initialState.world,
             mapPreset,
             playerPos: { ...townSpawn },
+            discoveredAreas: ['oakwindTown'],
           },
           team: [starter],
           pokedex: markCaught(markSeen(createPokedex(), starter.species), starter.species),
+          quests: createQuestState(),
+          questToast: null,
+          questPopup: null,
+          reputation: {
+            oakwind: 0,
+            mistCoast: 0,
+            ironpeak: 0,
+          },
+          achievements: createAchievementState(),
+          achievementToast: null,
+          worldSystems: syncWorldSystems(initialState.worldSystems),
+          daycare: normalizeDaycare(initialState.daycare),
+          profile: { codexViewedNpcs: {} },
           screen: SCREENS.WORLD,
         };
         dispatch({ type: 'SET_STATE', payload: next });
@@ -280,15 +649,17 @@ export function GameProvider({ children }) {
     continueGame() {
       const save = loadGame(state.activeSaveSlot || 1);
       if (!save) return;
+      const normalizedSave = normalizeLoadedState(save);
       dispatch({
         type: 'SET_STATE',
         payload: {
-          ...save,
+          ...normalizedSave,
+          worldSystems: syncWorldSystems(normalizedSave.worldSystems),
           activeSaveSlot: state.activeSaveSlot || 1,
           saveSlots: listSaveSlots(),
-          inventory: ensureMinimumInventory(save.inventory),
-          team: (save.team || []).map(normalizePokemonForBattle),
-          storage: (save.storage || []).map(normalizePokemonForBattle),
+          inventory: ensureMinimumInventory(normalizedSave.inventory),
+          team: (normalizedSave.team || []).map(normalizePokemonForBattle),
+          storage: (normalizedSave.storage || []).map(normalizePokemonForBattle),
           screen: SCREENS.WORLD,
         },
       });
@@ -297,15 +668,17 @@ export function GameProvider({ children }) {
     continueFromSlot(slot) {
       const save = loadGame(slot);
       if (!save) return false;
+      const normalizedSave = normalizeLoadedState(save);
       dispatch({
         type: 'SET_STATE',
         payload: {
-          ...save,
+          ...normalizedSave,
+          worldSystems: syncWorldSystems(normalizedSave.worldSystems),
           activeSaveSlot: slot,
           saveSlots: listSaveSlots(),
-          inventory: ensureMinimumInventory(save.inventory),
-          team: (save.team || []).map(normalizePokemonForBattle),
-          storage: (save.storage || []).map(normalizePokemonForBattle),
+          inventory: ensureMinimumInventory(normalizedSave.inventory),
+          team: (normalizedSave.team || []).map(normalizePokemonForBattle),
+          storage: (normalizedSave.storage || []).map(normalizePokemonForBattle),
           screen: SCREENS.WORLD,
         },
       });
@@ -338,7 +711,11 @@ export function GameProvider({ children }) {
     },
 
     async moveToArea(nextAreaId) {
-      if (!canTravel(state.world.areaId, nextAreaId, state.world.flags)) return;
+      if (!canTravel(state.world.areaId, nextAreaId, state.world.flags)) {
+        dispatch({ type: 'PATCH', payload: { error: lockMessageForArea(nextAreaId, state.world.flags) } });
+        return;
+      }
+      const isNewArea = !(state.world.discoveredAreas || []).includes(nextAreaId);
       const spawn = AREA_MAPS[nextAreaId]?.spawn || { x: 1, y: 1 };
       const nextWorld = {
         ...state.world,
@@ -346,11 +723,113 @@ export function GameProvider({ children }) {
         playerPos: { ...spawn },
         playerFacing: 'down',
         stepsInArea: 0,
+        discoveredAreas: isNewArea
+          ? [...(state.world.discoveredAreas || []), nextAreaId]
+          : [...(state.world.discoveredAreas || [])],
       };
-      dispatch({ type: 'PATCH', payload: { world: nextWorld } });
+      const questRuntime = resolveQuestRuntime({
+        event: { type: 'enter-area', areaId: nextAreaId },
+        world: nextWorld,
+      });
+      const syncedSystems = syncWorldSystems(state.worldSystems);
+      const regionId = AREAS[nextAreaId]?.region;
+      const reputationAfterMove = addReputation(questRuntime.reputation, regionId, isNewArea ? 2 : 0);
+      let achievementRuntime = isNewArea
+        ? resolveAchievementEvent({
+          achievements: state.achievements,
+          event: { type: 'discover-area', areaId: nextAreaId },
+        })
+        : { achievements: state.achievements, toast: null };
+      for (let index = 0; index < (questRuntime.completedQuestCount || 0); index += 1) {
+        achievementRuntime = resolveAchievementEvent({
+          achievements: achievementRuntime.achievements,
+          event: { type: 'complete-quest' },
+        });
+      }
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          world: questRuntime.world,
+          quests: questRuntime.quests,
+          inventory: questRuntime.inventory,
+          money: questRuntime.money,
+          reputation: reputationAfterMove,
+          achievements: achievementRuntime.achievements,
+          questToast: questRuntime.questToast,
+          questPopup: questRuntime.questPopup || state.questPopup,
+          achievementToast: achievementRuntime.toast || state.achievementToast,
+          worldSystems: syncedSystems,
+        },
+      });
       dispatch({ type: 'SET_SAVE_STATUS', payload: 'saving' });
-      saveGame({ ...state, world: nextWorld }, state.activeSaveSlot || 1);
+      saveGame({
+        ...state,
+        world: questRuntime.world,
+        quests: questRuntime.quests,
+        inventory: questRuntime.inventory,
+        money: questRuntime.money,
+        reputation: reputationAfterMove,
+        achievements: achievementRuntime.achievements,
+        worldSystems: syncedSystems,
+      }, state.activeSaveSlot || 1);
       dispatch({ type: 'SET_SAVE_STATUS', payload: 'saved' });
+    },
+
+    async fastTravel(nextAreaId) {
+      const area = AREAS[nextAreaId];
+      if (!area) return false;
+      const discovered = state.world.discoveredAreas || [];
+      if (!discovered.includes(nextAreaId)) {
+        dispatch({ type: 'PATCH', payload: { error: 'Area ainda nao descoberta para fast-travel.' } });
+        return false;
+      }
+      const allowedTypes = new Set(['town', 'center', 'shop', 'gym']);
+      if (!allowedTypes.has(area.type)) {
+        dispatch({ type: 'PATCH', payload: { error: 'Fast-travel disponivel apenas para hubs.' } });
+        return false;
+      }
+      const missing = (area.requires || []).filter((flag) => !(state.world.flags || []).includes(flag));
+      if (missing.length) {
+        dispatch({ type: 'PATCH', payload: { error: lockMessageForArea(nextAreaId, state.world.flags) } });
+        return false;
+      }
+      const spawn = AREA_MAPS[nextAreaId]?.spawn || { x: 1, y: 1 };
+      const nextWorld = {
+        ...state.world,
+        areaId: nextAreaId,
+        playerPos: { ...spawn },
+        playerFacing: 'down',
+        stepsInArea: 0,
+        discoveredAreas: [...discovered],
+      };
+      const questRuntime = resolveQuestRuntime({
+        event: { type: 'enter-area', areaId: nextAreaId },
+        world: nextWorld,
+      });
+      const syncedSystems = syncWorldSystems(state.worldSystems);
+      let achievementRuntime = { achievements: state.achievements, toast: null };
+      for (let index = 0; index < (questRuntime.completedQuestCount || 0); index += 1) {
+        achievementRuntime = resolveAchievementEvent({
+          achievements: achievementRuntime.achievements,
+          event: { type: 'complete-quest' },
+        });
+      }
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          world: questRuntime.world,
+          quests: questRuntime.quests,
+          inventory: questRuntime.inventory,
+          money: questRuntime.money,
+          reputation: questRuntime.reputation,
+          achievements: achievementRuntime.achievements,
+          questToast: questRuntime.questToast,
+          questPopup: questRuntime.questPopup || state.questPopup,
+          achievementToast: achievementRuntime.toast || state.achievementToast,
+          worldSystems: syncedSystems,
+        },
+      });
+      return true;
     },
 
     async walkStep() {
@@ -359,10 +838,16 @@ export function GameProvider({ children }) {
 
       const steps = state.world.stepsInArea + 1;
       const newWorld = { ...state.world, stepsInArea: steps };
-      dispatch({ type: 'PATCH', payload: { world: newWorld } });
+      const outside = applyOutsideStatusStep(state.team);
+      dispatch({ type: 'PATCH', payload: { world: newWorld, team: outside.team } });
 
       const preset = getMapPresetById(state.world.mapPreset);
-      if (Math.random() > (preset.encounterRate || 0.16)) return;
+      const weather = state.worldSystems?.weather || 'clear';
+      const pathMod = pathChoiceModifier(state.worldSystems).encounterRate || 1;
+      const weatherMod = weather === 'storm' || weather === 'mist' ? 1.08 : weather === 'clear' ? 0.96 : 1;
+      const abilityMod = explorationEncounterModifier(outside.team);
+      const chance = Math.max(0.04, Math.min(0.4, (preset.encounterRate || 0.16) * pathMod * weatherMod * abilityMod));
+      if (Math.random() > chance) return;
       const rolled = rollEncounter(area.id);
       if (!rolled) return;
 
@@ -412,7 +897,7 @@ export function GameProvider({ children }) {
         });
         return;
       }
-      if (nextTile === '#') {
+      if (isBlockingTile(nextTile)) {
         dispatch({
           type: 'PATCH',
           payload: {
@@ -428,7 +913,11 @@ export function GameProvider({ children }) {
 
       const exit = findExit(areaId, nextPos.x, nextPos.y);
       if (exit) {
-        if (!canTravel(areaId, exit.to, state.world.flags)) return;
+        if (!canTravel(areaId, exit.to, state.world.flags)) {
+          dispatch({ type: 'PATCH', payload: { error: lockMessageForArea(exit.to, state.world.flags) } });
+          return;
+        }
+        const isNewArea = !(state.world.discoveredAreas || []).includes(exit.to);
         const nextWorld = {
           ...state.world,
           areaId: exit.to,
@@ -436,8 +925,44 @@ export function GameProvider({ children }) {
           playerFacing: direction,
           playerFrame: nextFrame,
           stepsInArea: 0,
+          discoveredAreas: isNewArea
+            ? [...(state.world.discoveredAreas || []), exit.to]
+            : [...(state.world.discoveredAreas || [])],
         };
-        dispatch({ type: 'PATCH', payload: { world: nextWorld } });
+        const questRuntime = resolveQuestRuntime({
+          event: { type: 'enter-area', areaId: exit.to },
+          world: nextWorld,
+        });
+        const syncedSystems = syncWorldSystems(state.worldSystems);
+        const regionId = AREAS[exit.to]?.region;
+        const reputationAfterMove = addReputation(questRuntime.reputation, regionId, isNewArea ? 2 : 0);
+        let achievementRuntime = isNewArea
+          ? resolveAchievementEvent({
+            achievements: state.achievements,
+            event: { type: 'discover-area', areaId: exit.to },
+          })
+          : { achievements: state.achievements, toast: null };
+        for (let index = 0; index < (questRuntime.completedQuestCount || 0); index += 1) {
+          achievementRuntime = resolveAchievementEvent({
+            achievements: achievementRuntime.achievements,
+            event: { type: 'complete-quest' },
+          });
+        }
+        dispatch({
+          type: 'PATCH',
+          payload: {
+            world: questRuntime.world,
+            quests: questRuntime.quests,
+            inventory: questRuntime.inventory,
+            money: questRuntime.money,
+            reputation: reputationAfterMove,
+            achievements: achievementRuntime.achievements,
+            questToast: questRuntime.questToast,
+            questPopup: questRuntime.questPopup || state.questPopup,
+            achievementToast: achievementRuntime.toast || state.achievementToast,
+            worldSystems: syncedSystems,
+          },
+        });
         return;
       }
 
@@ -448,14 +973,29 @@ export function GameProvider({ children }) {
         playerFrame: nextFrame,
         stepsInArea: state.world.stepsInArea + 1,
       };
-      dispatch({ type: 'PATCH', payload: { world: nextWorld } });
+      const outside = applyOutsideStatusStep(state.team);
+      const daycareRuntime = advanceDaycare(state.daycare, outside.team, 1);
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          world: nextWorld,
+          team: daycareRuntime.team,
+          daycare: daycareRuntime.daycare,
+          questToast: daycareRuntime.hatchable.length ? `Egg pronto para chocar: ${daycareRuntime.hatchable[0].species}` : state.questToast,
+        },
+      });
 
       const area = AREAS[areaId];
       if (!area?.canEncounter) return;
 
       const baseChance = getMapPresetById(state.world.mapPreset).encounterRate ?? 0.16;
-      if (nextTile !== 'g') return;
-      if (Math.random() > baseChance) return;
+      const weather = state.worldSystems?.weather || 'clear';
+      const pathMod = pathChoiceModifier(state.worldSystems).encounterRate || 1;
+      const weatherMod = weather === 'storm' || weather === 'mist' ? 1.08 : weather === 'clear' ? 0.96 : 1;
+      const abilityMod = explorationEncounterModifier(daycareRuntime.team);
+      const encounterChance = Math.max(0.04, Math.min(0.4, baseChance * pathMod * weatherMod * abilityMod));
+      if (!isEncounterTile(nextTile)) return;
+      if (Math.random() > encounterChance) return;
 
       const rolled = rollEncounter(areaId);
       if (!rolled) return;
@@ -486,56 +1026,39 @@ export function GameProvider({ children }) {
       };
       const npc = tileHasNpc(state.world.areaId, targetPos.x, targetPos.y);
       if (!npc) return false;
-
-      const nextWorld = { ...state.world, npcFlags: { ...state.world.npcFlags } };
-      const nextQuests = {
-        active: { ...(state.quests.active || {}) },
-        completed: { ...(state.quests.completed || {}) },
-        log: [...(state.quests.log || [])],
-      };
-      let nextInventory = state.inventory;
-      let nextMoney = state.money;
-      let lines = [...(npc.dialogue || [`${npc.name}: ...`])];
-
-      if (npc.questId && !nextQuests.active[npc.questId] && !nextQuests.completed[npc.questId]) {
-        nextQuests.active[npc.questId] = true;
-        const quest = QUESTS[npc.questId];
-        lines.push(`Nova quest: ${quest?.name || npc.questId}`);
-      }
-
-      if (npc.questTrigger) {
-        nextWorld.npcFlags[npc.questTrigger] = true;
-      }
-
-      for (const questId of Object.keys(nextQuests.active)) {
-        const quest = QUESTS[questId];
-        if (!quest) continue;
-
-        let canComplete = false;
-        if (quest.kind === 'interact') {
-          canComplete = !!nextWorld.npcFlags[quest.triggerId];
-        } else if (quest.kind === 'trainer-defeat') {
-          canComplete = !!state.world.defeatedTrainers[quest.trainerId];
-        }
-
-        if (canComplete) {
-          delete nextQuests.active[questId];
-          nextQuests.completed[questId] = true;
-          nextQuests.log.push(questId);
-          const rewarded = applyQuestRewards({ inventory: nextInventory, money: nextMoney }, quest.rewards);
-          nextInventory = rewarded.inventory;
-          nextMoney = rewarded.money;
-          lines.push(`Quest concluida: ${quest.name}`);
-        }
+      const questRuntime = resolveQuestRuntime({
+        event: { type: 'talk-npc', npcId: npc.id },
+      });
+      const guidance = getTrackedQuestGuidance(questRuntime.quests);
+      const mentorLine = npc.mentor && guidance
+        ? `Dica: ${guidance.objectiveText}`
+        : null;
+      const lines = [...(npc.dialogue || [`${npc.name}: ...`])];
+      if (mentorLine) lines.push(mentorLine);
+      let achievementRuntime = { achievements: state.achievements, toast: null };
+      for (let index = 0; index < (questRuntime.completedQuestCount || 0); index += 1) {
+        achievementRuntime = resolveAchievementEvent({
+          achievements: achievementRuntime.achievements,
+          event: { type: 'complete-quest' },
+        });
       }
 
       dispatch({
         type: 'PATCH',
         payload: {
-          world: nextWorld,
-          quests: nextQuests,
-          inventory: nextInventory,
-          money: nextMoney,
+          world: questRuntime.world,
+          quests: questRuntime.quests,
+          inventory: questRuntime.inventory,
+          money: questRuntime.money,
+          reputation: questRuntime.reputation,
+          achievements: achievementRuntime.achievements,
+          questToast: questRuntime.questToast,
+          questPopup: questRuntime.questPopup || state.questPopup,
+          achievementToast: achievementRuntime.toast || state.achievementToast,
+          profile: {
+            ...state.profile,
+            codexViewedNpcs: { ...(state.profile?.codexViewedNpcs || {}), [npc.id]: true },
+          },
           error: lines.join(' '),
         },
       });
@@ -648,12 +1171,18 @@ export function GameProvider({ children }) {
 
       const defeated = nextBattle.enemyTeam[nextBattle.enemyActiveIndex];
       const isGym = nextBattle.trainerId && !!GYMS[nextBattle.trainerId];
-      const trainerReward = TRAINERS[nextBattle.trainerId]?.rewardMoney || GYMS[nextBattle.trainerId]?.rewardMoney || 0;
+      const areaBoss = getAreaBossById(nextBattle.trainerId);
+      const moneyMod = pathChoiceModifier(state.worldSystems).money || 1;
+      const trainerReward = TRAINERS[nextBattle.trainerId]?.rewardMoney
+        || GYMS[nextBattle.trainerId]?.rewardMoney
+        || areaBoss?.rewardMoney
+        || 0;
+      const adjustedTrainerReward = Math.floor(trainerReward * moneyMod);
       const reward = applyBattleRewards({
         playerTeam: nextBattle.playerTeam,
         defeatedPokemon: defeated,
         money: state.money,
-        moneyReward: trainerReward,
+        moneyReward: adjustedTrainerReward,
       });
       const xpTotal = Object.values(reward.xpByPokemon || {}).reduce((sum, value) => sum + value, 0);
 
@@ -709,6 +1238,8 @@ export function GameProvider({ children }) {
       const nextGymsDefeated = { ...state.world.gymsDefeated };
       let nextBadges = state.badges;
       let nextFlags = [...state.world.flags];
+      let nextBossesDefeated = { ...(state.worldSystems?.bossesDefeated || {}) };
+      let nextInventoryWithBossReward = state.inventory;
 
       if (nextBattle.trainerId && TRAINERS[nextBattle.trainerId]) {
         nextDefeatedTrainers[nextBattle.trainerId] = true;
@@ -718,6 +1249,13 @@ export function GameProvider({ children }) {
       if (isGym) {
         nextGymsDefeated[nextBattle.trainerId] = true;
         nextBadges = addBadge(nextBadges, GYMS[nextBattle.trainerId].badgeId);
+      }
+
+      if (areaBoss) {
+        nextBossesDefeated[areaBoss.id] = true;
+        for (const [itemId, qty] of Object.entries(areaBoss.rewardItems || {})) {
+          nextInventoryWithBossReward = addItem(nextInventoryWithBossReward, itemId, qty);
+        }
       }
 
       const rewardCard = await withTimeout(
@@ -731,17 +1269,61 @@ export function GameProvider({ children }) {
         nextCollection[card.id] = card;
       }
 
+      const nextWorldAfterBattle = {
+        ...state.world,
+        defeatedTrainers: nextDefeatedTrainers,
+        gymsDefeated: nextGymsDefeated,
+        flags: nextFlags,
+      };
+      const questRuntime = nextBattle.trainerId
+        ? resolveQuestRuntime({
+          event: { type: 'defeat-trainer', trainerId: nextBattle.trainerId, areaId: state.world.areaId },
+          world: nextWorldAfterBattle,
+          inventory: nextInventoryWithBossReward,
+          money: reward.money,
+        })
+        : {
+          quests: state.quests,
+          world: nextWorldAfterBattle,
+          inventory: state.inventory,
+          money: reward.money,
+          reputation: state.reputation,
+          questToast: null,
+          questPopup: null,
+          completedQuestCount: 0,
+        };
+      const regionId = AREAS[state.world.areaId]?.region;
+      const reputationAfterBattle = nextBattle.trainerId
+        ? addReputation(questRuntime.reputation, regionId, 3)
+        : questRuntime.reputation;
+
+      let achievementRuntime = { achievements: state.achievements, toast: null };
+      if (nextBattle.trainerId) {
+        achievementRuntime = resolveAchievementEvent({
+          achievements: state.achievements,
+          event: { type: 'defeat-trainer', trainerId: nextBattle.trainerId },
+        });
+      }
+      for (let index = 0; index < (questRuntime.completedQuestCount || 0); index += 1) {
+        achievementRuntime = resolveAchievementEvent({
+          achievements: achievementRuntime.achievements,
+          event: { type: 'complete-quest' },
+        });
+      }
+
       dispatch({
         type: 'PATCH',
         payload: {
           team: nextTeam,
-          money: reward.money,
-          world: {
-            ...state.world,
-            defeatedTrainers: nextDefeatedTrainers,
-            gymsDefeated: nextGymsDefeated,
-            flags: nextFlags,
-          },
+          money: questRuntime.money,
+          inventory: questRuntime.inventory,
+          world: questRuntime.world,
+          quests: questRuntime.quests,
+          reputation: reputationAfterBattle,
+          achievements: achievementRuntime.achievements,
+          questToast: questRuntime.questToast,
+          questPopup: questRuntime.questPopup || state.questPopup,
+          achievementToast: achievementRuntime.toast || state.achievementToast,
           badges: nextBadges,
           pendingLevelUp: reward.leveledUp ? nextTeam[0] : null,
           pendingEvolution: null,
@@ -751,10 +1333,14 @@ export function GameProvider({ children }) {
             title: 'Vitoria!',
             message: `${defeated?.name || 'Inimigo'} derrotado.`,
             xpTotal,
-            moneyGained: trainerReward,
+            moneyGained: adjustedTrainerReward,
             xpToNextLevel: xpRemainingToNextLevel(nextTeam[0]),
           },
           tcg: { ...state.tcg, collection: nextCollection },
+          worldSystems: {
+            ...state.worldSystems,
+            bossesDefeated: nextBossesDefeated,
+          },
         },
       });
     },
@@ -833,13 +1419,39 @@ export function GameProvider({ children }) {
         }
       }
 
+      const questRuntime = resolveQuestRuntime({
+        event: { type: 'capture', species: target.species, areaId: state.world.areaId },
+        inventory: nextInventory,
+      });
+      const regionId = AREAS[state.world.areaId]?.region;
+      const reputationAfterCapture = addReputation(questRuntime.reputation, regionId, 1);
+
+      let achievementRuntime = resolveAchievementEvent({
+        achievements: state.achievements,
+        event: { type: 'capture', species: target.species },
+      });
+      for (let index = 0; index < (questRuntime.completedQuestCount || 0); index += 1) {
+        achievementRuntime = resolveAchievementEvent({
+          achievements: achievementRuntime.achievements,
+          event: { type: 'complete-quest' },
+        });
+      }
+
       dispatch({
         type: 'PATCH',
         payload: {
-          inventory: nextInventory,
+          inventory: questRuntime.inventory,
           team: nextTeam,
           storage: nextStorage,
           pokedex: markCaught(state.pokedex, target.species),
+          quests: questRuntime.quests,
+          world: questRuntime.world,
+          money: questRuntime.money,
+          reputation: reputationAfterCapture,
+          achievements: achievementRuntime.achievements,
+          questToast: questRuntime.questToast,
+          questPopup: questRuntime.questPopup || state.questPopup,
+          achievementToast: achievementRuntime.toast || state.achievementToast,
           battle: {
             ...battle,
             phase: 'ended',
@@ -998,12 +1610,250 @@ export function GameProvider({ children }) {
     buyItem(itemId, qty = 1) {
       const item = ITEMS[itemId];
       if (!item) return false;
-      const cost = item.buyPrice * qty;
+      const dailyEvent = getDailyEvent(syncWorldSystems(state.worldSystems));
+      const discount = dailyEvent?.shopDiscount || 1;
+      const stock = state.worldSystems?.shopStock || SHOP_CATALOG;
+      if (!stock.includes(itemId)) return false;
+      const cost = Math.floor(item.buyPrice * qty * discount);
       const result = spendMoney(state.money, cost);
       if (!result.ok) return false;
       const nextInventory = addItem(state.inventory, itemId, qty);
-      dispatch({ type: 'PATCH', payload: { money: result.money, inventory: nextInventory } });
+      const nextSystems = markTutorialTipSeen(syncWorldSystems(state.worldSystems), 'firstShopBuy');
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          money: result.money,
+          inventory: nextInventory,
+          worldSystems: nextSystems,
+          questToast: !state.worldSystems?.tutorialTipsSeen?.firstShopBuy ? TUTORIAL_TIPS.firstShopBuy : state.questToast,
+        },
+      });
       return true;
+    },
+
+    craftItem(recipeId) {
+      const recipe = CRAFTING_RECIPES.find((entry) => entry.id === recipeId);
+      if (!recipe) return false;
+      for (const [itemId, qty] of Object.entries(recipe.cost || {})) {
+        if ((state.inventory[itemId] || 0) < qty) return false;
+      }
+
+      let nextInventory = { ...state.inventory };
+      for (const [itemId, qty] of Object.entries(recipe.cost || {})) {
+        nextInventory = consumeItem(nextInventory, itemId, qty);
+      }
+      for (const [itemId, qty] of Object.entries(recipe.output || {})) {
+        nextInventory = addItem(nextInventory, itemId, qty);
+      }
+
+      const nextSystems = markTutorialTipSeen(syncWorldSystems(state.worldSystems), 'firstCraft');
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          inventory: nextInventory,
+          worldSystems: nextSystems,
+          questToast: !state.worldSystems?.tutorialTipsSeen?.firstCraft ? TUTORIAL_TIPS.firstCraft : state.questToast,
+        },
+      });
+      return true;
+    },
+
+    async fishEncounter(rodKind = 'oldRod') {
+      const areaId = state.world.areaId;
+      const rodItemId = rodKind === 'goodRod' ? 'goodRod' : 'oldRod';
+      if ((state.inventory[rodItemId] || 0) <= 0) return false;
+      const dailyEvent = getDailyEvent(syncWorldSystems(state.worldSystems));
+      const catchEntry = chooseFishingEntry(areaId, rodKind, state.worldSystems?.weather || 'clear', dailyEvent);
+      if (!catchEntry) return false;
+
+      dispatch({ type: 'SET_LOADING', payload: true });
+      try {
+        const wild = await fetchPokemonWithMoves(catchEntry.species, catchEntry.level, 'wild');
+        const battle = startWildBattle(state.team, wild);
+        const nextPokedex = markSeen(state.pokedex, catchEntry.species);
+        const nextSystems = markTutorialTipSeen(syncWorldSystems(state.worldSystems), 'firstFish');
+        dispatch({
+          type: 'PATCH',
+          payload: {
+            battle,
+            pokedex: nextPokedex,
+            screen: SCREENS.BATTLE,
+            worldSystems: nextSystems,
+            questToast: !state.worldSystems?.tutorialTipsSeen?.firstFish ? TUTORIAL_TIPS.firstFish : state.questToast,
+          },
+        });
+      } finally {
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
+      return true;
+    },
+
+    depositDaycare(uid) {
+      if (!uid) return false;
+      if ((state.daycare?.slots || []).length >= 2) return false;
+      const member = state.team.find((entry) => entry.uid === uid);
+      if (!member) return false;
+      const nextSlots = [...(state.daycare?.slots || []), { uid: member.uid, species: member.species, name: member.name }];
+      const nextDaycare = { ...normalizeDaycare(state.daycare), slots: nextSlots };
+      dispatch({ type: 'PATCH', payload: { daycare: nextDaycare } });
+      return true;
+    },
+
+    withdrawDaycare(uid) {
+      const nextSlots = (state.daycare?.slots || []).filter((entry) => entry.uid !== uid);
+      dispatch({ type: 'PATCH', payload: { daycare: { ...normalizeDaycare(state.daycare), slots: nextSlots } } });
+      return true;
+    },
+
+    async hatchEgg(eggId) {
+      const egg = (state.daycare?.eggs || []).find((entry) => entry.id === eggId);
+      if (!egg || egg.progress < egg.hatchSteps) return false;
+      dispatch({ type: 'SET_LOADING', payload: true });
+      try {
+        const newborn = await fetchPokemonWithMoves(egg.species, 1, 'player');
+        let nextTeam = state.team;
+        let nextStorage = state.storage;
+        if (canAddToTeam(nextTeam)) {
+          nextTeam = addPokemonToTeam(nextTeam, newborn);
+        } else {
+          nextStorage = addPokemonToStorage(nextStorage, newborn);
+        }
+        const nextDaycare = {
+          ...normalizeDaycare(state.daycare),
+          eggs: (state.daycare?.eggs || []).filter((entry) => entry.id !== eggId),
+        };
+        dispatch({
+          type: 'PATCH',
+          payload: {
+            team: nextTeam,
+            storage: nextStorage,
+            pokedex: markCaught(state.pokedex, newborn.species),
+            daycare: nextDaycare,
+            questToast: `Egg chocou: ${newborn.name}!`,
+          },
+        });
+      } finally {
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
+      return true;
+    },
+
+    setPathChoice(choiceId) {
+      if (!QUEST_PATH_CHOICES.find((entry) => entry.id === choiceId)) return false;
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          worldSystems: {
+            ...syncWorldSystems(state.worldSystems),
+            pathChoice: choiceId,
+            pathChoiceSelected: true,
+          },
+        },
+      });
+      return true;
+    },
+
+    async challengeAreaBoss() {
+      const areaId = state.world.areaId;
+      const boss = AREA_BOSSES[areaId];
+      if (!boss) return false;
+      if ((state.worldSystems?.bossesDefeated || {})[boss.id]) return false;
+      if (boss.unlockFlag && !(state.world.flags || []).includes(boss.unlockFlag)) return false;
+
+      dispatch({ type: 'SET_LOADING', payload: true });
+      try {
+        const scaled = adjustEnemyLevel(boss.level, state.world.mapPreset);
+        const alpha = await fetchPokemonWithMoves(boss.species, scaled, 'boss');
+        const battle = startTrainerBattle(state.team, [alpha], boss.id);
+        dispatch({ type: 'PATCH', payload: { battle, screen: SCREENS.BATTLE } });
+      } finally {
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
+      return true;
+    },
+
+    async tradeWithNpc(offerId) {
+      const offer = NPC_TRADE_OFFERS.find((entry) => entry.id === offerId);
+      if (!offer) return false;
+      if (offer.location !== state.world.areaId) return false;
+      if (offer.once && state.worldSystems?.tradeCompleted?.[offer.id]) return false;
+      const candidate = state.team.find((member) => member.species === offer.wants && (member.level || 1) >= (offer.minLevel || 1));
+      if (!candidate) return false;
+
+      dispatch({ type: 'SET_LOADING', payload: true });
+      try {
+        const traded = await fetchPokemonWithMoves(offer.gives, Math.max(offer.minLevel || 1, candidate.level), 'player');
+        const without = state.team.filter((member) => member.uid !== candidate.uid);
+        const nextTeam = canAddToTeam(without) ? addPokemonToTeam(without, traded) : without;
+        const nextStorage = canAddToTeam(without) ? state.storage : addPokemonToStorage(state.storage, traded);
+        const nextSystems = syncWorldSystems(state.worldSystems);
+        nextSystems.tradeCompleted = { ...(nextSystems.tradeCompleted || {}), [offer.id]: true };
+        dispatch({
+          type: 'PATCH',
+          payload: {
+            team: nextTeam,
+            storage: nextStorage,
+            pokedex: markCaught(state.pokedex, traded.species),
+            worldSystems: nextSystems,
+            questToast: `${offer.npc} trocou ${offer.wants} por ${traded.name}.`,
+          },
+        });
+      } finally {
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
+      return true;
+    },
+
+    runBattleTower() {
+      const avg = state.team.length
+        ? state.team.reduce((sum, member) => sum + (member.level || 1), 0) / state.team.length
+        : 1;
+      const baseChance = Math.min(0.85, Math.max(0.25, 0.35 + avg / 140));
+      const win = Math.random() <= baseChance;
+      const currentTower = state.worldSystems?.tower || { streak: 0, bestStreak: 0, rank: 'Bronze' };
+      const nextStreak = win ? currentTower.streak + 1 : 0;
+      const nextBest = Math.max(currentTower.bestStreak || 0, nextStreak);
+      const nextRank = rankByStreak(nextBest);
+      const reward = win ? Math.floor(220 + avg * 12 + nextStreak * 30) : 0;
+      const nextSystems = syncWorldSystems(state.worldSystems);
+      nextSystems.tower = {
+        streak: nextStreak,
+        bestStreak: nextBest,
+        rank: nextRank,
+      };
+      nextSystems.tutorialTipsSeen = {
+        ...(nextSystems.tutorialTipsSeen || {}),
+        firstTower: true,
+      };
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          money: state.money + reward,
+          worldSystems: nextSystems,
+          questToast: win
+            ? `Battle Tower: vitoria! Streak ${nextStreak}. +$${reward}`
+            : `Battle Tower: derrota. Melhor streak ${nextBest}.`,
+        },
+      });
+      return win;
+    },
+
+    refreshDailyWorld() {
+      const synced = syncWorldSystems(state.worldSystems);
+      dispatch({ type: 'PATCH', payload: { worldSystems: synced } });
+    },
+
+    markNpcCodexViewed(npcId) {
+      if (!npcId) return;
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          profile: {
+            ...state.profile,
+            codexViewedNpcs: { ...(state.profile?.codexViewedNpcs || {}), [npcId]: true },
+          },
+        },
+      });
     },
 
     healAtCenter() {
@@ -1171,7 +2021,24 @@ export function GameProvider({ children }) {
     getMapPresetOptions() {
       return MAP_PRESETS;
     },
-  }), [state]);
+
+    trackQuest(questId) {
+      dispatch({ type: 'PATCH', payload: { quests: trackQuestState(state.quests, questId) } });
+    },
+
+    clearQuestToast() {
+      dispatch({ type: 'PATCH', payload: { questToast: null } });
+    },
+
+    clearAchievementToast() {
+      dispatch({ type: 'PATCH', payload: { achievementToast: null } });
+    },
+
+    dismissQuestPopup() {
+      dispatch({ type: 'PATCH', payload: { questPopup: null } });
+    },
+  });
+  }, [state]);
 
   useEffect(() => {
     if (!state.playerName) return;
@@ -1190,6 +2057,11 @@ export function GameProvider({ children }) {
     state.money,
     state.world,
     state.quests,
+    state.reputation,
+    state.achievements,
+    state.worldSystems,
+    state.daycare,
+    state.profile,
     state.pokedex,
     state.badges,
     state.tcg,

@@ -12,4 +12,10 @@ export const SHOP_CATALOG = [
   'thunderStone',
   'leafStone',
   'moonStone',
+  'oldRod',
+  'goodRod',
+  'apricorn',
+  'scrapMetal',
+  'herbBundle',
+  'crystalDust',
 ];

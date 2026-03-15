@@ -12,4 +12,10 @@ export const ITEMS = {
   thunderStone: { id: 'thunderStone', name: 'Thunder Stone', kind: 'evolution', buyPrice: 2100 },
   leafStone: { id: 'leafStone', name: 'Leaf Stone', kind: 'evolution', buyPrice: 2100 },
   moonStone: { id: 'moonStone', name: 'Moon Stone', kind: 'evolution', buyPrice: 2300 },
+  oldRod: { id: 'oldRod', name: 'Old Rod', kind: 'tool', buyPrice: 900 },
+  goodRod: { id: 'goodRod', name: 'Good Rod', kind: 'tool', buyPrice: 2200 },
+  apricorn: { id: 'apricorn', name: 'Apricorn', kind: 'material', buyPrice: 120 },
+  scrapMetal: { id: 'scrapMetal', name: 'Scrap Metal', kind: 'material', buyPrice: 140 },
+  herbBundle: { id: 'herbBundle', name: 'Herb Bundle', kind: 'material', buyPrice: 180 },
+  crystalDust: { id: 'crystalDust', name: 'Crystal Dust', kind: 'material', buyPrice: 260 },
 };

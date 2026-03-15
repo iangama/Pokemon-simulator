@@ -29,4 +29,37 @@ export const TRAINERS = {
       { species: 'machop', level: 6 },
     ],
   },
+  'trainer-kira': {
+    id: 'trainer-kira',
+    name: 'Sailor Kira',
+    areaId: 'azureCoast',
+    rewardMoney: 1300,
+    team: [
+      { species: 'wingull', level: 12 },
+      { species: 'mareep', level: 12 },
+      { species: 'wooper', level: 13 },
+    ],
+  },
+  'trainer-brant': {
+    id: 'trainer-brant',
+    name: 'Miner Brant',
+    areaId: 'emberCave',
+    rewardMoney: 1650,
+    team: [
+      { species: 'onix', level: 14 },
+      { species: 'numel', level: 14 },
+      { species: 'koffing', level: 15 },
+    ],
+  },
+  'trainer-selene': {
+    id: 'trainer-selene',
+    name: 'Ranger Selene',
+    areaId: 'ironpeakPass',
+    rewardMoney: 2100,
+    team: [
+      { species: 'gligar', level: 16 },
+      { species: 'snover', level: 16 },
+      { species: 'skarmory', level: 17 },
+    ],
+  },
 };

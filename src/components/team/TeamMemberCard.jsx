@@ -24,6 +24,8 @@ export default function TeamMemberCard({ pokemon, actions }) {
         <div>XP: {xpInLevel}/{xpNeeded} (faltam {xpRemaining})</div>
         <StatBar value={xpInLevel} max={xpNeeded} label={`${pokemon.name} XP`} />
         <div>{pokemon.types.join(' / ')}</div>
+        <div>Nature: {pokemon.nature?.name || 'Hardy'}</div>
+        <div>Ability: {pokemon.abilities?.[0] || 'none'}</div>
         {pokemon.evolutionReady && <div>Ready to Evolve</div>}
       </div>
       {actions}

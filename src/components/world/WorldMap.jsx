@@ -5,6 +5,10 @@ const MAP_LAYOUT = {
   route1: { x: 44, y: 54 },
   sunleafForest: { x: 58, y: 38 },
   route2: { x: 72, y: 54 },
+  mistvaleTown: { x: 86, y: 54 },
+  azureCoast: { x: 86, y: 36 },
+  emberCave: { x: 86, y: 20 },
+  ironpeakPass: { x: 70, y: 14 },
   pokemonCenter: { x: 26, y: 70 },
   itemShop: { x: 36, y: 70 },
   verdantGym: { x: 83, y: 50 },
@@ -20,6 +24,34 @@ const TYPE_CLASS = {
   shop: 'map-node-shop',
 };
 
+const TILE_CLASS = {
+  '#': 'tile-wall',
+  '.': 'tile-path',
+  r: 'tile-road',
+  g: 'tile-grass',
+  h: 'tile-tall-grass',
+  t: 'tile-tree',
+  '~': 'tile-water',
+  f: 'tile-flowers',
+  s: 'tile-sand',
+};
+
+const TILE_SYMBOL = {
+  E: '⇄',
+  F: '⇄',
+  R: '⇄',
+  T: '⇄',
+  G: 'GYM',
+  C: 'PKC',
+  S: 'MART',
+  L: 'BOSS',
+  P: 'PLZ',
+  H: 'HEAL',
+  A: '⇄',
+  M: '⇄',
+  I: '⇄',
+};
+
 function connectionKey(a, b) {
   return [a, b].sort().join('__');
 }
@@ -28,6 +60,7 @@ function areaColor(type) {
   if (type === 'town') return '#f6c85a';
   if (type === 'route') return '#7fbf5f';
   if (type === 'forest') return '#2f8f5b';
+  if (type === 'cave') return '#8e9ba7';
   if (type === 'gym') return '#b66ce3';
   if (type === 'center') return '#57a0d7';
   if (type === 'shop') return '#db7f47';
@@ -45,12 +78,20 @@ export default function WorldMap({
   neighbors,
   onMove,
   onTravel,
+  onFastTravel,
+  fastTravelOptions = [],
   onWalk,
   onTrainer,
   onGym,
   onInteractNpc,
   trainers = [],
   npcs = [],
+  npcQuestMarkers = {},
+  questTargetAreaId = null,
+  targetNpcId = null,
+  targetNpcName = null,
+  targetNpcAreaId = null,
+  targetNpcPos = null,
   quests,
 }) {
   const connectedIds = new Set(neighbors.map((item) => item.id));
@@ -107,7 +148,7 @@ export default function WorldMap({
           return (
             <button
               key={node.id}
-              className={`map-node ${TYPE_CLASS[node.type] || ''} ${isCurrent ? 'current' : ''} ${isReachable ? 'reachable' : ''}`}
+              className={`map-node ${TYPE_CLASS[node.type] || ''} ${isCurrent ? 'current' : ''} ${isReachable ? 'reachable' : ''} ${questTargetAreaId === node.id ? 'quest-target' : ''}`}
               style={{
                 left: `${pos.x}%`,
                 top: `${pos.y}%`,
@@ -142,22 +183,32 @@ export default function WorldMap({
               row.split('').map((tile, x) => {
                 const isPlayer = world?.playerPos?.x === x && world?.playerPos?.y === y;
                 const npc = npcs.find((entry) => entry.x === x && entry.y === y);
-                const classByTile = tile === '#'
-                  ? 'tile-wall'
-                  : tile === 'g'
-                    ? 'tile-grass'
-                    : 'tile-path';
+                const npcMarker = npc ? npcQuestMarkers[npc.id] : null;
+                const isTargetNpc = !!npc && npc.id === targetNpcId && currentAreaId === targetNpcAreaId;
+                const isTargetTile = targetNpcPos
+                  && currentAreaId === targetNpcAreaId
+                  && targetNpcPos.x === x
+                  && targetNpcPos.y === y;
+                const classByTile = TILE_CLASS[tile] || 'tile-path';
+                const tileSymbol = TILE_SYMBOL[tile] || '';
                 return (
                   <div
                     key={`${x}-${y}`}
-                    className={`tile ${classByTile} ${isPlayer ? 'tile-player' : ''} ${npc ? 'tile-npc' : ''}`}
+                    className={`tile ${classByTile} ${isPlayer ? 'tile-player' : ''} ${npc ? 'tile-npc' : ''} ${isTargetTile ? 'tile-quest-goal' : ''}`}
                     title={`(${x},${y})`}
                   >
                     {isPlayer ? (
                       <span className={`player-sprite facing-${world?.playerFacing || 'down'} frame-${world?.playerFrame || 0} walking`} />
                     ) : npc ? (
-                      <span className={`npc-sprite frame-${npcFrame}`} title={npc.name}>N</span>
-                    ) : tile === 'E' ? 'X' : tile === 'G' ? 'G' : ''}
+                      <span className={`npc-sprite frame-${npcFrame} ${isTargetNpc ? 'npc-sprite-target' : ''}`} title={npc.name}>
+                        N
+                        {npcMarker === 'available' && <span className="npc-quest-marker available">!</span>}
+                        {npcMarker === 'turnin' && <span className="npc-quest-marker turnin">?</span>}
+                        {isTargetNpc && <span className="npc-quest-marker focus">★</span>}
+                      </span>
+                    ) : tileSymbol ? (
+                      <span className="tile-symbol">{tileSymbol}</span>
+                    ) : ''}
                   </div>
                 );
               })
@@ -180,12 +231,27 @@ export default function WorldMap({
         <>
           <h3>NPCs</h3>
           <div className="mini-grid">
-            {npcs.map((npc) => (
-              <span key={npc.id} className="list-row">
-                {npc.name}
-              </span>
-            ))}
+            {npcs.map((npc) => {
+              const marker = npcQuestMarkers[npc.id];
+              const markerText = marker === 'available' ? '! quest nova' : marker === 'turnin' ? '? entregar' : '';
+              const isTargetNpc = npc.id === targetNpcId;
+              return (
+                <span key={npc.id} className={`list-row ${isTargetNpc ? 'list-row-focus' : ''}`}>
+                  <span>
+                    <strong>{npc.name}</strong>
+                    <br />
+                    Posicao: ({npc.x}, {npc.y}) {markerText}
+                    {isTargetNpc ? ' | alvo atual' : ''}
+                  </span>
+                </span>
+              );
+            })}
           </div>
+          {targetNpcId && (
+            <p className="world-subtitle">
+              Proximo contato: <strong>{targetNpcName || targetNpcId}</strong>. Procure o icone <strong>★</strong> no mapa.
+            </p>
+          )}
         </>
       )}
 
@@ -203,9 +269,16 @@ export default function WorldMap({
       <div className="mini-grid">
         <span className="list-row">Yellow: Town</span>
         <span className="list-row">Green: Route / Forest</span>
+        <span className="list-row">Gray: Cave</span>
         <span className="list-row">Blue: Center</span>
         <span className="list-row">Orange: Shop</span>
         <span className="list-row">Purple: Gym</span>
+      </div>
+
+      <div className="mini-grid">
+        <span className="list-row">Dark Green: Tall Grass (encounters)</span>
+        <span className="list-row">Blue: Water (blocked)</span>
+        <span className="list-row">Trees / Walls: blocked</span>
       </div>
 
       <h3>Travel</h3>
@@ -216,6 +289,19 @@ export default function WorldMap({
           </button>
         ))}
       </div>
+
+      {!!fastTravelOptions.length && (
+        <>
+          <h3>Fast Travel (Hubs Descobertos)</h3>
+          <div className="mini-grid">
+            {fastTravelOptions.map((next) => (
+              <button key={next.id} onClick={() => onFastTravel(next.id)}>
+                {next.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {trainers.length > 0 && (
         <>

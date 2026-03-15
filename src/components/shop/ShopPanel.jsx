@@ -1,16 +1,16 @@
-import { SHOP_CATALOG } from '../../data/shopCatalog';
 import { ITEMS } from '../../data/items';
 
-export default function ShopPanel({ money, onBuy }) {
+export default function ShopPanel({ money, stock = [], discount = 1, dailyEventName = 'Dia comum', onBuy }) {
   return (
     <div className="panel">
       <h2>Shop</h2>
       <p>Money: ${money}</p>
+      <p>Evento do dia: {dailyEventName} {discount !== 1 ? `(desconto ${Math.round((1 - discount) * 100)}%)` : ''}</p>
       <div className="stack">
-        {SHOP_CATALOG.map((itemId) => (
+        {stock.map((itemId) => (
           <div key={itemId} className="list-row">
-            <span>{ITEMS[itemId].name}</span>
-            <span>${ITEMS[itemId].buyPrice}</span>
+            <span>{ITEMS[itemId]?.name || itemId}</span>
+            <span>${Math.floor((ITEMS[itemId]?.buyPrice || 0) * discount)}</span>
             <button onClick={() => onBuy(itemId)}>Buy</button>
           </div>
         ))}
