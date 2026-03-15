@@ -56,3 +56,17 @@ npm run preview
 - Sem backend (persistencia local via LocalStorage).
 - Arquitetura separa UI, dominio, engine e store para escalar para muito mais Pokemon.
 - Evolucao complexa (itens, troca, horario etc.) tem fallback e foco atual em evolucao por nivel.
+-  Deploy (Vercel)
+
+  O deploy recomendado é na Vercel para este projeto React + Vite.
+
+  ### Passos rápidos
+  1. Importar o repositório no Vercel.
+  2. Build command: `npm run build`
+  3. Output directory: `dist`
+  4. Deploy.
+
+  ### Observação sobre link inativo
+  Se o link ficar temporariamente inativo (como pode acontecer em plataformas gratuitas), normalmente
+  é só abrir a URL e aguardar alguns segundos para o serviço “acordar”. https://pokemon-simulator-olive.vercel.app/
+  
