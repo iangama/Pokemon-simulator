@@ -3,7 +3,12 @@ import { SCREENS, STARTING_MONEY } from '../utils/constants';
 import { createInitialInventory, consumeItem, addItem } from '../domain/inventory/inventoryModel';
 import { createPokedex, markCaught, markSeen } from '../domain/pokedex/pokedexModel';
 import { addPokemonToTeam, canAddToTeam, healTeam, replaceTeamMember } from '../domain/team/teamModel';
-import { addPokemonToStorage, moveFromStorageToTeam, moveFromTeamToStorage } from '../domain/team/storageModel';
+import {
+  addPokemonToStorage,
+  moveFromStorageToTeam,
+  moveFromTeamToStorage,
+  swapStorageWithTeam,
+} from '../domain/team/storageModel';
 import { applyItemToPokemon } from '../domain/inventory/itemEffects';
 import { spendMoney } from '../domain/progression/moneyModel';
 import { addBadge } from '../domain/progression/badgeModel';
@@ -1935,12 +1940,12 @@ export function GameProvider({ children }) {
       let nextTeam = battle.playerTeam;
       let nextStorage = state.storage;
       const captured = { ...target, owner: 'player' };
-      let capturedTo = 'team';
+      let capturedTo = 'time';
       if (canAddToTeam(nextTeam)) {
         nextTeam = addPokemonToTeam(nextTeam, captured);
       } else {
         nextStorage = addPokemonToStorage(nextStorage, captured);
-        capturedTo = 'storage';
+        capturedTo = 'reserva';
       }
 
       const lead = nextTeam[0];
@@ -2648,6 +2653,17 @@ export function GameProvider({ children }) {
       if (!canAddToTeam(state.team)) return;
       const moved = moveFromStorageToTeam({ storage: state.storage, team: state.team, uid });
       dispatch({ type: 'PATCH', payload: moved });
+    },
+
+    swapStorageToTeam(storageUid, teamUid) {
+      if (!storageUid || !teamUid) return;
+      const swapped = swapStorageWithTeam({
+        storage: state.storage,
+        team: state.team,
+        storageUid,
+        teamUid,
+      });
+      dispatch({ type: 'PATCH', payload: swapped });
     },
 
     moveTeamToStorage(uid) {

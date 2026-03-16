@@ -8,6 +8,7 @@ export default function StorageScreen({ state, actions }) {
         storage={state.storage}
         onToStorage={actions.moveTeamToStorage}
         onToTeam={actions.moveStorageToTeam}
+        onSwapToTeam={actions.swapStorageToTeam}
       />
     </div>
   );
