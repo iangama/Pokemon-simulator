@@ -143,6 +143,18 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
   flex: 1;
   min-width: 0;
 }
+.storage-pokemon-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.storage-pokemon-label img {
+  width: 42px;
+  height: 42px;
+  image-rendering: pixelated;
+  flex: 0 0 auto;
+}
 .scroll-area { max-height: 420px; overflow: auto; }
 .save-indicator {
   font-size: 0.9rem;
@@ -654,11 +666,20 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
   background: linear-gradient(180deg, #d1e9ff, #e2f6d5 56%);
 }
 .enemy-zone, .player-zone { display: flex; justify-content: center; position: relative; z-index: 2; }
-.enemy-zone img, .player-zone img { width: 120px; image-rendering: pixelated; }
+.enemy-zone img, .player-zone img {
+  width: clamp(88px, 12vw, 104px);
+  height: clamp(88px, 12vw, 104px);
+  object-fit: contain;
+  image-rendering: pixelated;
+}
 .player-zone { justify-content: flex-start; }
 .battle-sprite-wrap {
   position: relative;
   display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: clamp(88px, 12vw, 104px);
+  height: clamp(88px, 12vw, 104px);
   will-change: transform, filter;
 }
 .battle-idle {
