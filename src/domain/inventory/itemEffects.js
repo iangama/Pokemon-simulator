@@ -18,5 +18,19 @@ export function applyItemToPokemon(pokemon, itemId) {
     return { ...pokemon, status: null };
   }
 
+  if (item.kind === 'energy') {
+    const ppRestore = Math.max(0, Number(item.ppRestore || 0));
+    if (!ppRestore) return pokemon;
+    const nextMoves = (pokemon.moves || []).map((move) => {
+      const maxPp = Number(move.pp || 0);
+      const currentPp = Number(move.currentPp ?? maxPp);
+      return {
+        ...move,
+        currentPp: Math.min(maxPp, currentPp + ppRestore),
+      };
+    });
+    return { ...pokemon, moves: nextMoves };
+  }
+
   return pokemon;
 }

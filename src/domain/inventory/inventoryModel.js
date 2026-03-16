@@ -1,6 +1,8 @@
 export function createInitialInventory() {
   return {
     pokeball: 10,
+    greatBall: 2,
+    ultraBall: 0,
     potion: 12,
     superPotion: 4,
     revive: 3,

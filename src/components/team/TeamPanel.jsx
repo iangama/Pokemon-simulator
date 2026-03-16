@@ -13,9 +13,10 @@ function sumStats(team = []) {
 
 export default function TeamPanel({
   team,
+  inventory = {},
   storage = [],
   daycare,
-  onUsePotion,
+  onUseItem,
   onEvolve,
   onEvolveWithItem,
   getItemEvolutions,
@@ -39,6 +40,17 @@ export default function TeamPanel({
     ],
     [storage, team, targetUid]
   );
+  const usableItems = useMemo(
+    () => Object.entries(inventory || {})
+      .filter(([itemId, qty]) => {
+        const kind = ITEMS[itemId]?.kind;
+        if (!qty || qty <= 0) return false;
+        return ['healing', 'revive', 'status', 'status-heal', 'energy'].includes(kind);
+      })
+      .map(([itemId, qty]) => ({ itemId, qty })),
+    [inventory]
+  );
+  const [selectedItemId, setSelectedItemId] = useState(usableItems[0]?.itemId || 'potion');
 
   useEffect(() => {
     if (!team.length) {
@@ -49,6 +61,16 @@ export default function TeamPanel({
       setTargetUid(team[0].uid);
     }
   }, [team, targetUid]);
+
+  useEffect(() => {
+    if (!usableItems.length) {
+      setSelectedItemId('');
+      return;
+    }
+    if (!usableItems.some((entry) => entry.itemId === selectedItemId)) {
+      setSelectedItemId(usableItems[0].itemId);
+    }
+  }, [usableItems, selectedItemId]);
 
   function toggleSim(setter, selected, uid) {
     if (selected.includes(uid)) {
@@ -62,6 +84,21 @@ export default function TeamPanel({
   return (
     <div className="panel">
       <h2>Team</h2>
+      <div className="quest-card">
+        <strong>Usar Item no Time</strong>
+        <div className="mini-grid">
+          <select value={selectedItemId} onChange={(event) => setSelectedItemId(event.target.value)}>
+            {usableItems.length ? usableItems.map((entry) => (
+              <option key={entry.itemId} value={entry.itemId}>
+                {ITEMS[entry.itemId]?.name || entry.itemId} (x{entry.qty})
+              </option>
+            )) : <option value="">Sem itens disponiveis</option>}
+          </select>
+          <small>
+            Item selecionado: <strong>{ITEMS[selectedItemId]?.name || 'Nenhum'}</strong>
+          </small>
+        </div>
+      </div>
       <div className="stack">
         {team.map((pokemon) => (
           <TeamMemberCard
@@ -69,7 +106,12 @@ export default function TeamPanel({
             pokemon={pokemon}
             actions={(
               <div className="stack">
-                <button onClick={() => onUsePotion?.(pokemon.uid)}>Use Potion</button>
+                <button
+                  onClick={() => onUseItem?.(selectedItemId, pokemon.uid)}
+                  disabled={!selectedItemId || !usableItems.length}
+                >
+                  Usar {ITEMS[selectedItemId]?.name || 'item'}
+                </button>
                 {pokemon.evolutionReady && (
                   <button onClick={() => onEvolve?.(pokemon.uid)}>Evolve</button>
                 )}

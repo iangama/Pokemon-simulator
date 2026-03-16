@@ -1,8 +1,13 @@
 export const SHOP_CATALOG = [
   'pokeball',
+  'greatBall',
+  'ultraBall',
   'potion',
   'superPotion',
   'revive',
+  'energySmall',
+  'energyMedium',
+  'energyLarge',
   'antidote',
   'xAttack',
   'guardSpec',

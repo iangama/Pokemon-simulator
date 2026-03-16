@@ -34,6 +34,7 @@ export const AREA_TYPES = {
   FOREST: 'forest',
   CAVE: 'cave',
   GYM: 'gym',
+  TOWER: 'tower',
   CENTER: 'center',
   SHOP: 'shop',
 };

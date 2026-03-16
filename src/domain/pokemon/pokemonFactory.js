@@ -32,6 +32,13 @@ export function createPokemonEntity({ pokemonData, speciesData, level = 5, owner
 
   const initialMoves = buildInitialMoveSet(pokemonData);
 
+  const artworkFront = pokemonData.sprites?.other?.['official-artwork']?.front_default
+    || pokemonData.sprites?.other?.home?.front_default
+    || pokemonData.sprites?.other?.dream_world?.front_default
+    || '';
+  const spriteFront = pokemonData.sprites?.front_default || artworkFront || '';
+  const spriteBack = pokemonData.sprites?.back_default || pokemonData.sprites?.front_default || artworkFront || '';
+
   return {
     uid: `${pokemonData.name}-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
     owner,
@@ -39,8 +46,8 @@ export function createPokemonEntity({ pokemonData, speciesData, level = 5, owner
     speciesId: speciesData.id,
     name: toTitle(speciesData.name || pokemonData.name),
     species: speciesData.name,
-    spriteFront: pokemonData.sprites?.front_default || '',
-    spriteBack: pokemonData.sprites?.back_default || pokemonData.sprites?.front_default || '',
+    spriteFront,
+    spriteBack,
     types: (pokemonData.types || []).map((t) => t.type.name),
     abilities: (pokemonData.abilities || []).map((a) => a.ability.name),
     nature,

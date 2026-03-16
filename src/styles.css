@@ -187,23 +187,67 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
 }
 .expressive-map {
   position: relative;
-  min-height: 380px;
-  border-radius: 0.9rem;
-  border: 3px solid #2b4b58;
+  min-height: 460px;
+  border-radius: 1rem;
+  border: 2px solid #294451;
   overflow: hidden;
-  background: linear-gradient(180deg, #cde5f4 0%, #d4ebd0 42%, #c4d19f 100%);
+  background:
+    radial-gradient(circle at 15% 20%, #ffffff66 0, #ffffff00 34%),
+    radial-gradient(circle at 80% 65%, #ffffff4a 0, #ffffff00 38%),
+    linear-gradient(168deg, #d7ecf8 0%, #d9ecd9 45%, #c3ce9e 100%);
+  box-shadow: inset 0 0 0 1px #ffffff80, 0 12px 26px #0f1d2429;
+}
+.world-map-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: #00000080;
+}
+.world-map-modal-content {
+  width: min(1120px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  border: 2px solid #2a414e;
+  background: linear-gradient(180deg, #f7f5e5, #ece8ce);
+  box-shadow: 0 18px 42px #101f273b;
+}
+.world-map-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.world-map-modal-head h3 {
+  margin: 0;
+  letter-spacing: 0.03em;
+}
+.world-map-modal-head button {
+  min-width: 38px;
+  min-height: 32px;
+  border-radius: 0.5rem;
+  border: 2px solid #2f4653;
+  background: linear-gradient(180deg, #fff8dc, #eadcb1);
+  color: #253e4a;
+  font-weight: 700;
+}
+.world-map-modal-head button:hover {
+  transform: translateY(-1px);
 }
 .map-backdrop {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 16% 86%, #4f8a5d66 0 16%, transparent 17%),
-    radial-gradient(circle at 59% 30%, #3f8b576b 0 21%, transparent 22%),
-    radial-gradient(circle at 84% 53%, #8d77434d 0 15%, transparent 16%),
+    radial-gradient(circle at 16% 86%, #4f8a5d6e 0 16%, transparent 17%),
+    radial-gradient(circle at 59% 30%, #3f8b5777 0 21%, transparent 22%),
+    radial-gradient(circle at 84% 53%, #8d774355 0 15%, transparent 16%),
+    radial-gradient(circle at 46% 67%, #9fc8a84a 0 18%, transparent 19%),
     repeating-linear-gradient(
       45deg,
       transparent 0 12px,
-      #ffffff26 12px 14px
+      #ffffff24 12px 14px
     );
 }
 .map-svg {
@@ -211,48 +255,55 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
   inset: 0;
 }
 .map-edge {
-  stroke: #274b34;
-  stroke-width: 1.8;
-  opacity: 0.55;
+  stroke: #2f5840;
+  stroke-width: 2;
+  opacity: 0.62;
   stroke-linecap: round;
-  stroke-dasharray: 0.8 2;
+  stroke-dasharray: 1.1 1.8;
 }
 .map-edge-active {
-  stroke: #f3b54e;
+  stroke: #e99f2f;
   opacity: 0.95;
-  stroke-width: 2.2;
+  stroke-width: 2.6;
 }
 
 .map-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  border: 3px solid #35576b;
-  background: #fefcf1e6;
+  border: 2px solid #35576b;
+  background: linear-gradient(180deg, #fffef1f0, #fff6dce8);
   border-radius: 999px;
-  min-width: 108px;
-  min-height: 42px;
-  padding: 0.25rem 0.5rem;
+  min-width: 126px;
+  min-height: 48px;
+  padding: 0.3rem 0.58rem;
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 0.35rem;
   align-items: center;
-  box-shadow: 0 3px 0 #00000024, 0 0 0 2px #ffffffc2 inset;
+  box-shadow: 0 3px 0 #00000029, 0 0 0 1px #ffffffcc inset, 0 6px 14px #1c2f3829;
+  transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+}
+.map-node:hover:not(:disabled) {
+  transform: translate(-50%, calc(-50% - 2px));
+  box-shadow: 0 4px 0 #0000002d, 0 0 0 1px #ffffffcc inset, 0 10px 16px #13242c38;
 }
 .map-node-label {
-  font-size: 0.74rem;
+  font-size: 0.77rem;
   line-height: 1.05;
   text-align: left;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 .map-node-dot {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   border-radius: 999px;
   border: 2px solid #fff;
   box-shadow: 0 0 0 1px #1b2e35;
 }
 .map-node.current {
-  background: #fff8cc;
-  box-shadow: 0 0 0 3px #ffe391, 0 8px 14px #0000002e;
+  background: linear-gradient(180deg, #fff6bf, #f8e39a);
+  box-shadow: 0 0 0 3px #ffe391, 0 0 0 6px #ffd56357, 0 10px 16px #00000030;
   z-index: 2;
 }
 .map-node.reachable:not(.current) {
@@ -266,9 +317,33 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
   filter: saturate(0.75);
   opacity: 0.85;
 }
+.map-node-locked {
+  filter: grayscale(0.3) saturate(0.6);
+  opacity: 0.74;
+  cursor: not-allowed;
+  box-shadow: 0 0 0 2px #ffe1a1, 0 3px 0 #00000024;
+}
+.map-node-locked .map-node-label {
+  color: #6f5a2d;
+}
+.map-lock-tag {
+  grid-column: 1 / -1;
+  font-size: 0.58rem;
+  line-height: 1;
+  color: #4a3000;
+  background: #ffe2b0;
+  border: 1px solid #8b6430;
+  border-radius: 999px;
+  padding: 0.08rem 0.3rem;
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .player-pin {
   position: absolute;
-  top: -17px;
+  top: -18px;
   right: -8px;
   font-size: 0.62rem;
   letter-spacing: 0.03em;
@@ -284,8 +359,31 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
 .map-node-forest .map-node-label { color: #1a5f46; }
 .map-node-cave .map-node-label { color: #42535d; }
 .map-node-gym .map-node-label { color: #643794; }
+.map-node-tower .map-node-label { color: #6f3d00; }
 .map-node-center .map-node-label { color: #215f88; }
 .map-node-shop .map-node-label { color: #7b3f18; }
+.map-legend {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+.map-legend-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #2a4350;
+  text-transform: uppercase;
+}
+.map-legend-chip {
+  font-size: 0.72rem;
+  color: #233a46;
+  background: #f5f2de;
+  border: 1px solid #9da97c;
+  border-radius: 999px;
+  padding: 0.16rem 0.5rem;
+}
 
 .open-map-section {
   border: 2px solid #254b59;
@@ -409,7 +507,13 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
 .player-sprite.facing-left { transform: rotate(90deg); }
 .player-sprite.facing-right { transform: rotate(-90deg); }
 .player-sprite.walking {
-  animation: walkBob 220ms steps(1) infinite;
+  animation: walkBob 240ms steps(1) infinite;
+}
+.player-sprite.walking::before {
+  animation: playerHeadBob 240ms steps(1) infinite;
+}
+.player-sprite.walking::after {
+  animation: playerStepKick 240ms steps(1) infinite;
 }
 .npc-sprite {
   width: 11px;
@@ -527,6 +631,7 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
 
 .battle-panel { background: linear-gradient(180deg, #e8f7e2, #f8f3de); }
 .battle-arena {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr;
   min-height: 240px;
@@ -535,9 +640,83 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
   border-radius: 0.6rem;
   background: linear-gradient(180deg, #d1e9ff, #e2f6d5 56%);
 }
-.enemy-zone, .player-zone { display: flex; justify-content: center; }
+.enemy-zone, .player-zone { display: flex; justify-content: center; position: relative; z-index: 2; }
 .enemy-zone img, .player-zone img { width: 120px; image-rendering: pixelated; }
 .player-zone { justify-content: flex-start; }
+.battle-sprite-wrap {
+  position: relative;
+  display: inline-flex;
+  will-change: transform, filter;
+}
+.battle-idle {
+  transform-origin: 50% 80%;
+}
+.idle-player {
+  animation: battleIdlePlayer 1.7s ease-in-out infinite;
+}
+.idle-enemy {
+  animation: battleIdleEnemy 1.8s ease-in-out infinite;
+}
+.battle-entry-player {
+  animation: battleEntryPlayer 560ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+.battle-entry-enemy {
+  animation: battleEntryEnemy 560ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.motion-neutral {
+  filter: saturate(1.02);
+}
+.motion-electric {
+  animation-name: battleIdleEnemy, idleElectricJitter;
+  animation-duration: 1.8s, 0.34s;
+  animation-timing-function: ease-in-out, steps(1);
+  animation-iteration-count: infinite, infinite;
+}
+.idle-player.motion-electric {
+  animation-name: battleIdlePlayer, idleElectricJitter;
+  animation-duration: 1.7s, 0.34s;
+}
+.motion-flying {
+  animation-name: battleIdleEnemy, idleHover;
+  animation-duration: 1.8s, 1.2s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+}
+.idle-player.motion-flying {
+  animation-name: battleIdlePlayer, idleHover;
+  animation-duration: 1.7s, 1.2s;
+}
+.motion-float {
+  animation-name: battleIdleEnemy, idleFloat;
+  animation-duration: 1.8s, 1.5s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+}
+.idle-player.motion-float {
+  animation-name: battleIdlePlayer, idleFloat;
+  animation-duration: 1.7s, 1.5s;
+}
+.motion-fire {
+  animation-name: battleIdleEnemy, idleFirePulse;
+  animation-duration: 1.8s, 0.9s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+}
+.idle-player.motion-fire {
+  animation-name: battleIdlePlayer, idleFirePulse;
+  animation-duration: 1.7s, 0.9s;
+}
+.motion-ice {
+  animation-name: battleIdleEnemy, idleIceShimmer;
+  animation-duration: 1.8s, 1s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+}
+.idle-player.motion-ice {
+  animation-name: battleIdlePlayer, idleIceShimmer;
+  animation-duration: 1.7s, 1s;
+}
 .battle-hud {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -592,6 +771,95 @@ progress { width: 100%; }
   margin-top: 0.5rem;
 }
 .capture-feedback { margin: 0.4rem 0; font-weight: 700; color: #96550a; }
+
+.battle-attack-player {
+  animation: battleLungePlayer 340ms ease;
+}
+.battle-attack-enemy {
+  animation: battleLungeEnemy 340ms ease;
+}
+.battle-hit {
+  animation: battleShake 380ms ease;
+}
+.battle-flash {
+  box-shadow: 0 0 0 2px #ffffffa8 inset, 0 0 0 0 transparent;
+  animation: battleFlash 420ms ease;
+}
+
+.battle-projectile {
+  position: absolute;
+  top: 48%;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  z-index: 3;
+  pointer-events: none;
+  filter: drop-shadow(0 0 8px #ffffffa8);
+}
+.battle-projectile-player {
+  left: 18%;
+  animation: projectilePlayer 420ms ease-out;
+}
+.battle-projectile-enemy {
+  right: 18%;
+  animation: projectileEnemy 420ms ease-out;
+}
+
+.type-fire {
+  background: radial-gradient(circle at 35% 35%, #ffe8c4 0 20%, #ff9f4d 45%, #ff5f2d 100%);
+}
+.type-electric {
+  background: radial-gradient(circle at 35% 35%, #fff8c7 0 20%, #ffe066 48%, #ffb800 100%);
+}
+.type-ice {
+  background: radial-gradient(circle at 35% 35%, #f4fbff 0 20%, #9ee8ff 50%, #4fc3f7 100%);
+}
+.type-normal {
+  background: radial-gradient(circle at 35% 35%, #ffffff 0 20%, #e9f1ff 50%, #c8d5ee 100%);
+}
+.type-fire.battle-flash {
+  box-shadow: 0 0 0 2px #ffd6bf inset, 0 0 14px #ff7e2a80;
+}
+.type-electric.battle-flash {
+  box-shadow: 0 0 0 2px #fff1b3 inset, 0 0 14px #ffcf2e80;
+}
+.type-ice.battle-flash {
+  box-shadow: 0 0 0 2px #dff6ff inset, 0 0 14px #73d0ff80;
+}
+
+@keyframes battleLungePlayer {
+  0% { transform: translateX(0) scale(1); }
+  45% { transform: translateX(14px) scale(1.04); }
+  100% { transform: translateX(0) scale(1); }
+}
+@keyframes battleLungeEnemy {
+  0% { transform: translateX(0) scale(1); }
+  45% { transform: translateX(-14px) scale(1.04); }
+  100% { transform: translateX(0) scale(1); }
+}
+@keyframes battleShake {
+  0% { transform: translateX(0); }
+  18% { transform: translateX(-7px); }
+  38% { transform: translateX(7px); }
+  56% { transform: translateX(-5px); }
+  72% { transform: translateX(5px); }
+  100% { transform: translateX(0); }
+}
+@keyframes battleFlash {
+  0% { filter: brightness(1); }
+  28% { filter: brightness(1.5) saturate(1.35); }
+  100% { filter: brightness(1); }
+}
+@keyframes projectilePlayer {
+  0% { transform: translate(0, 0) scale(0.7); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translate(410%, -24px) scale(1.2); opacity: 0; }
+}
+@keyframes projectileEnemy {
+  0% { transform: translate(0, 0) scale(0.7); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translate(-410%, 24px) scale(1.2); opacity: 0; }
+}
 
 .starter-grid {
   display: grid;
@@ -700,8 +968,65 @@ progress { width: 100%; }
 }
 @keyframes walkBob {
   0% { filter: brightness(1); }
-  50% { filter: brightness(1.12); }
+  50% { filter: brightness(1.12) saturate(1.08); }
   100% { filter: brightness(1); }
+}
+@keyframes playerHeadBob {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+  100% { transform: translateY(0); }
+}
+@keyframes playerStepKick {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(1px); }
+  100% { transform: translateX(0); }
+}
+@keyframes battleIdlePlayer {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.015); }
+  100% { transform: translateY(0) scale(1); }
+}
+@keyframes battleIdleEnemy {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(2px) scale(1.01); }
+  100% { transform: translateY(0) scale(1); }
+}
+@keyframes battleEntryPlayer {
+  0% { transform: translateX(-72px) translateY(6px) scale(0.94); opacity: 0; }
+  55% { transform: translateX(8px) translateY(-1px) scale(1.03); opacity: 1; }
+  100% { transform: translateX(0) translateY(0) scale(1); opacity: 1; }
+}
+@keyframes battleEntryEnemy {
+  0% { transform: translateX(72px) translateY(-6px) scale(0.94); opacity: 0; }
+  55% { transform: translateX(-8px) translateY(1px) scale(1.03); opacity: 1; }
+  100% { transform: translateX(0) translateY(0) scale(1); opacity: 1; }
+}
+@keyframes idleElectricJitter {
+  0% { filter: brightness(1) saturate(1); }
+  25% { transform: translateX(-1px); filter: brightness(1.16) saturate(1.28); }
+  50% { transform: translateX(1px); filter: brightness(1.1) saturate(1.2); }
+  75% { transform: translateX(-1px); filter: brightness(1.18) saturate(1.3); }
+  100% { transform: translateX(0); filter: brightness(1) saturate(1); }
+}
+@keyframes idleHover {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+  100% { transform: translateY(0); }
+}
+@keyframes idleFloat {
+  0% { transform: translateY(0) rotate(-0.6deg); }
+  50% { transform: translateY(-3px) rotate(0.6deg); }
+  100% { transform: translateY(0) rotate(-0.6deg); }
+}
+@keyframes idleFirePulse {
+  0% { filter: saturate(1) brightness(1); }
+  50% { filter: saturate(1.3) brightness(1.12); }
+  100% { filter: saturate(1) brightness(1); }
+}
+@keyframes idleIceShimmer {
+  0% { filter: brightness(1) hue-rotate(0deg); }
+  50% { filter: brightness(1.12) hue-rotate(8deg); }
+  100% { filter: brightness(1) hue-rotate(0deg); }
 }
 
 @media (max-width: 768px) {
@@ -712,13 +1037,19 @@ progress { width: 100%; }
   .starter-grid { grid-template-columns: 1fr; }
   .world-header { flex-direction: column; align-items: stretch; }
   .main-objective { flex-direction: column; align-items: stretch; }
-  .expressive-map { min-height: 430px; }
+  .expressive-map { min-height: 480px; }
   .map-node {
-    min-width: 88px;
-    min-height: 38px;
-    padding: 0.2rem 0.4rem;
+    min-width: 96px;
+    min-height: 40px;
+    padding: 0.2rem 0.44rem;
   }
-  .map-node-label { font-size: 0.64rem; }
+  .map-node-label { font-size: 0.67rem; }
+  .map-legend {
+    gap: 0.36rem;
+  }
+  .map-legend-chip {
+    font-size: 0.66rem;
+  }
 
   .team-member {
     grid-template-columns: 64px 1fr;

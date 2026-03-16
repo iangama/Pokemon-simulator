@@ -42,6 +42,7 @@ import {
   TUTORIAL_TIPS,
   WEATHER_BY_DAY,
   NPC_TRADE_OFFERS,
+  LEGEND_TOWER_FLOORS,
 } from '../data/worldSystems';
 import {
   createQuestState,
@@ -120,6 +121,7 @@ const initialState = {
     pathChoiceSelected: false,
     tradeCompleted: {},
     tower: { streak: 0, bestStreak: 0, rank: 'Bronze' },
+    legendTower: { currentFloor: 1, clearedFloors: [], completed: false },
   },
   daycare: {
     slots: [],
@@ -161,32 +163,105 @@ function reducer(state, action) {
 }
 
 async function fetchPokemonWithMoves(species, level, owner = 'player') {
-  const pokemonData = await fetchPokemonByNameOrId(species);
-  const speciesData = await fetchPokemonSpecies(species);
-  let entity = createPokemonEntity({ pokemonData, speciesData, level, owner });
+  try {
+    const pokemonData = await fetchPokemonByNameOrId(species);
+    let speciesData;
+    try {
+      speciesData = await fetchPokemonSpecies(species);
+    } catch (_error) {
+      // Keep battle running even when species endpoint is unstable.
+      speciesData = {
+        id: pokemonData.id || 0,
+        name: pokemonData.name || String(species || 'unknown'),
+        evolution_chain: { url: null },
+        evolves_from_species: null,
+        capture_rate: 45,
+      };
+    }
+    let entity = createPokemonEntity({ pokemonData, speciesData, level, owner });
 
-  const moveDetailsBySlug = {};
-  await Promise.all(
-    entity.moves.map(async (move) => {
-      const detail = await fetchMoveByNameOrId(move.slug);
-      moveDetailsBySlug[move.slug] = detail;
-    })
-  );
+    const moveDetailsBySlug = {};
+    await Promise.all(
+      entity.moves.map(async (move) => {
+        try {
+          const detail = await fetchMoveByNameOrId(move.slug);
+          moveDetailsBySlug[move.slug] = detail;
+        } catch (_error) {
+          // Keep base move data when move detail fails.
+        }
+      })
+    );
 
-  entity = {
-    ...entity,
-    moves: enrichMovesWithDetails(entity.moves, moveDetailsBySlug),
-  };
-  return entity;
+    entity = {
+      ...entity,
+      spriteFront: entity.spriteFront || showdownSprite(entity.species || species, false),
+      spriteBack: entity.spriteBack || showdownSprite(entity.species || species, true),
+      moves: enrichMovesWithDetails(entity.moves, moveDetailsBySlug),
+    };
+    return entity;
+  } catch (_error) {
+    const slug = String(species || 'unknown');
+    const displayName = slug
+      .split('-')
+      .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
+      .join(' ');
+    const hp = Math.max(18, Math.floor(level * 4.4));
+    const attack = Math.max(8, Math.floor(level * 2.2));
+    const defense = Math.max(8, Math.floor(level * 2));
+    const speed = Math.max(8, Math.floor(level * 2));
+    const frontSprite = showdownSprite(slug, false);
+    const backSprite = showdownSprite(slug, true);
+
+    return {
+      uid: `${slug}-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+      owner,
+      pokemonId: 0,
+      speciesId: 0,
+      name: displayName,
+      species: slug,
+      spriteFront: frontSprite || fallbackSpriteDataUri(displayName, 'enemy'),
+      spriteBack: backSprite || fallbackSpriteDataUri(displayName, 'player'),
+      types: ['normal'],
+      abilities: ['adaptability'],
+      nature: { id: 'hardy', name: 'Hardy', up: null, down: null },
+      level,
+      currentXp: xpToLevel(level),
+      xpToNextLevel: xpToLevel(level + 1),
+      baseExperienceYield: 50,
+      baseStats: { hp, attack, defense, speed, specialAttack: attack, specialDefense: defense },
+      stats: { hp, attack, defense, speed, specialAttack: attack, specialDefense: defense },
+      currentHp: hp,
+      fainted: false,
+      status: null,
+      moves: [
+        { id: 'tackle', name: 'Tackle', slug: 'tackle', power: 40, type: 'normal', accuracy: 100, damageClass: 'physical', pp: 35, currentPp: 35 },
+        { id: 'quick-attack', name: 'Quick Attack', slug: 'quick-attack', power: 40, type: 'normal', accuracy: 100, damageClass: 'physical', pp: 30, currentPp: 30 },
+      ],
+      knownMoveSlugs: ['tackle', 'quick-attack'],
+      evolutionChainUrl: null,
+      evolvesFromSpecies: null,
+      capturedAtLevel: level,
+      caughtAsEvolved: false,
+      evolutionCount: 0,
+      evolutionReady: false,
+      nextEvolutionLevel: level + 3,
+      captureRate: 45,
+    };
+  }
 }
 
 function ensureMinimumInventory(inventory = {}) {
   return {
     ...inventory,
     pokeball: Math.max(10, inventory.pokeball || 0),
+    greatBall: Math.max(2, inventory.greatBall || 0),
+    ultraBall: Math.max(0, inventory.ultraBall || 0),
     potion: Math.max(12, inventory.potion || 0),
     superPotion: Math.max(4, inventory.superPotion || 0),
     revive: Math.max(3, inventory.revive || 0),
+    energySmall: Math.max(2, inventory.energySmall || 0),
+    energyMedium: Math.max(1, inventory.energyMedium || 0),
+    energyLarge: Math.max(0, inventory.energyLarge || 0),
     antidote: Math.max(3, inventory.antidote || 0),
     fireStone: Math.max(0, inventory.fireStone || 0),
     waterStone: Math.max(0, inventory.waterStone || 0),
@@ -216,6 +291,8 @@ function normalizePokemonForBattle(pokemon) {
 
   return {
     ...pokemon,
+    spriteFront: pokemon?.spriteFront || fallbackSpriteDataUri(pokemon?.name || pokemon?.species || 'pokemon', 'enemy'),
+    spriteBack: pokemon?.spriteBack || pokemon?.spriteFront || fallbackSpriteDataUri(pokemon?.name || pokemon?.species || 'pokemon', 'player'),
     stats: normalizedStats,
     moves: (pokemon.moves || []).map((move) => ({
       ...move,
@@ -246,6 +323,60 @@ function isBlockingTile(tile) {
 
 function isEncounterTile(tile) {
   return tile === 'g' || tile === 'h';
+}
+
+const EXIT_TILES = new Set(['E', 'F', 'R', 'T', 'A', 'M', 'I', 'G', 'C', 'S', 'H', 'O']);
+const TRIGGER_TILES = new Set(['N', 'B', 'L']);
+
+function normalizeSpriteSlug(species = 'pokemon') {
+  const raw = String(species || 'pokemon').toLowerCase();
+  if (raw === 'giratina-altered') return 'giratina';
+  if (raw === 'deoxys-normal') return 'deoxys';
+  return raw.replace(/[^a-z0-9-]/g, '');
+}
+
+function showdownSprite(species, back = false) {
+  const slug = normalizeSpriteSlug(species);
+  const base = back
+    ? 'https://play.pokemonshowdown.com/sprites/ani-back'
+    : 'https://play.pokemonshowdown.com/sprites/ani';
+  return `${base}/${slug}.gif`;
+}
+
+function nearestValidPosition(areaId, startPos, { avoidTriggers = false } = {}) {
+  const map = AREA_MAPS[areaId];
+  if (!map) return { x: 1, y: 1 };
+  const origin = {
+    x: Math.max(0, Math.min(map.width - 1, Number(startPos?.x ?? map.spawn?.x ?? 1))),
+    y: Math.max(0, Math.min(map.height - 1, Number(startPos?.y ?? map.spawn?.y ?? 1))),
+  };
+  const visited = new Set();
+  const queue = [origin];
+  const dirs = [
+    [0, 0],
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  while (queue.length) {
+    const current = queue.shift();
+    const key = `${current.x},${current.y}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+    const tile = getTileAt(areaId, current.x, current.y);
+    const blocked = tile == null || isBlockingTile(tile);
+    const unsafe = avoidTriggers && (EXIT_TILES.has(tile) || TRIGGER_TILES.has(tile));
+    if (!blocked && !unsafe) return current;
+    for (const [dx, dy] of dirs) {
+      const nx = current.x + dx;
+      const ny = current.y + dy;
+      if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
+      const nextKey = `${nx},${ny}`;
+      if (!visited.has(nextKey)) queue.push({ x: nx, y: ny });
+    }
+  }
+  return map.spawn || { x: 1, y: 1 };
 }
 
 function adjustEnemyLevel(baseLevel, mapPresetId) {
@@ -323,8 +454,23 @@ function dailyWorldSnapshot() {
   const hash = [...dayKey].reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const weather = WEATHER_BY_DAY[hash % WEATHER_BY_DAY.length] || 'clear';
   const dailyEvent = DAILY_WORLD_EVENTS[hash % DAILY_WORLD_EVENTS.length] || DAILY_WORLD_EVENTS[0];
-  const rotated = [...SHOP_CATALOG].sort((a, b) => ((a.charCodeAt(0) + hash) % 13) - ((b.charCodeAt(0) + hash) % 13));
-  const shopStock = rotated.slice(0, Math.min(rotated.length, 10));
+  const guaranteedCoreShopItems = [
+    'pokeball',
+    'greatBall',
+    'ultraBall',
+    'potion',
+    'superPotion',
+    'revive',
+    'energySmall',
+    'energyMedium',
+    'energyLarge',
+  ]
+    .filter((id) => SHOP_CATALOG.includes(id));
+  const rotated = [...SHOP_CATALOG]
+    .filter((id) => !guaranteedCoreShopItems.includes(id))
+    .sort((a, b) => ((a.charCodeAt(0) + hash) % 13) - ((b.charCodeAt(0) + hash) % 13));
+  const dynamicSize = Math.max(0, Math.min(rotated.length, 10 - guaranteedCoreShopItems.length));
+  const shopStock = [...guaranteedCoreShopItems, ...rotated.slice(0, dynamicSize)];
   return {
     dayKey,
     weather,
@@ -334,6 +480,57 @@ function dailyWorldSnapshot() {
   };
 }
 
+function fallbackSpriteDataUri(name = 'pokemon', tone = 'enemy') {
+  const initial = String(name || 'P').trim().charAt(0).toUpperCase() || 'P';
+  const bg = tone === 'player' ? '#5ea4d6' : '#d66a5e';
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+      <rect x="4" y="4" width="112" height="112" rx="14" fill="${bg}" stroke="#1f2f3a" stroke-width="6"/>
+      <circle cx="60" cy="48" r="16" fill="#fff3c4" />
+      <rect x="38" y="70" width="44" height="26" rx="8" fill="#fff3c4" />
+      <text x="60" y="112" text-anchor="middle" font-size="18" font-family="Verdana, sans-serif" fill="#ffffff">${initial}</text>
+    </svg>
+  `.trim();
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function totalCurrentPp(pokemon) {
+  return (pokemon?.moves || []).reduce((sum, move) => sum + (move?.currentPp || 0), 0);
+}
+
+function didPokemonChange(previous, next) {
+  return (
+    next.currentHp !== previous.currentHp
+    || next.fainted !== previous.fainted
+    || next.status !== previous.status
+    || totalCurrentPp(next) !== totalCurrentPp(previous)
+  );
+}
+
+function ensureBallStock(stock = []) {
+  const guaranteedCoreShopItems = [
+    'pokeball',
+    'greatBall',
+    'ultraBall',
+    'potion',
+    'superPotion',
+    'revive',
+    'energySmall',
+    'energyMedium',
+    'energyLarge',
+  ]
+    .filter((id) => SHOP_CATALOG.includes(id));
+  const seen = new Set(guaranteedCoreShopItems);
+  const sanitized = [...guaranteedCoreShopItems];
+  for (const itemId of stock || []) {
+    if (!SHOP_CATALOG.includes(itemId)) continue;
+    if (seen.has(itemId)) continue;
+    sanitized.push(itemId);
+    seen.add(itemId);
+  }
+  return sanitized.slice(0, Math.min(10, SHOP_CATALOG.length));
+}
+
 function normalizeWorldSystems(raw = {}) {
   const snapshot = dailyWorldSnapshot();
   const next = {
@@ -341,7 +538,7 @@ function normalizeWorldSystems(raw = {}) {
     weather: raw.weather || snapshot.weather,
     timeOfDay: raw.timeOfDay || snapshot.timeOfDay,
     dailyEventId: raw.dailyEventId || snapshot.dailyEventId,
-    shopStock: Array.isArray(raw.shopStock) && raw.shopStock.length ? raw.shopStock : snapshot.shopStock,
+    shopStock: ensureBallStock(Array.isArray(raw.shopStock) && raw.shopStock.length ? raw.shopStock : snapshot.shopStock),
     bossesDefeated: { ...(raw.bossesDefeated || {}) },
     tutorialTipsSeen: { ...(raw.tutorialTipsSeen || {}) },
     pathChoice: raw.pathChoice || 'balanced',
@@ -352,6 +549,11 @@ function normalizeWorldSystems(raw = {}) {
       bestStreak: Number(raw.tower?.bestStreak || 0),
       rank: raw.tower?.rank || 'Bronze',
     },
+    legendTower: {
+      currentFloor: Number(raw.legendTower?.currentFloor || 1),
+      clearedFloors: Array.isArray(raw.legendTower?.clearedFloors) ? [...raw.legendTower.clearedFloors] : [],
+      completed: !!raw.legendTower?.completed,
+    },
   };
 
   if (next.dayKey !== snapshot.dayKey) {
@@ -359,9 +561,10 @@ function normalizeWorldSystems(raw = {}) {
     next.weather = snapshot.weather;
     next.timeOfDay = snapshot.timeOfDay;
     next.dailyEventId = snapshot.dailyEventId;
-    next.shopStock = snapshot.shopStock;
+    next.shopStock = ensureBallStock(snapshot.shopStock);
   } else {
     next.timeOfDay = snapshot.timeOfDay;
+    next.shopStock = ensureBallStock(next.shopStock);
   }
   return next;
 }
@@ -530,8 +733,12 @@ function advanceDaycare(daycare, team, steps = 1) {
 }
 
 function normalizeLoadedState(save = {}) {
+  const loadedAreaId = save.world?.areaId || 'oakwindTown';
+  const loadedPos = save.world?.playerPos || AREA_MAPS[loadedAreaId]?.spawn || { x: 1, y: 1 };
   const normalizedWorld = {
     ...(save.world || {}),
+    areaId: loadedAreaId,
+    playerPos: nearestValidPosition(loadedAreaId, loadedPos, { avoidTriggers: true }),
     discoveredAreas: ensureDiscoveredAreas(save.world || {}),
   };
   const baseReputation = {
@@ -692,6 +899,17 @@ export function GameProvider({ children }) {
 
     return ({
     setScreen(screen) {
+      if (screen === SCREENS.WORLD) {
+        const fixedPos = nearestValidPosition(state.world.areaId, state.world.playerPos, { avoidTriggers: true });
+        dispatch({
+          type: 'PATCH',
+          payload: {
+            world: { ...state.world, playerPos: fixedPos },
+            screen,
+          },
+        });
+        return;
+      }
       dispatch({ type: 'SET_SCREEN', payload: screen });
     },
 
@@ -830,7 +1048,7 @@ export function GameProvider({ children }) {
         return;
       }
       const isNewArea = !(state.world.discoveredAreas || []).includes(nextAreaId);
-      const spawn = AREA_MAPS[nextAreaId]?.spawn || { x: 1, y: 1 };
+      const spawn = nearestValidPosition(nextAreaId, AREA_MAPS[nextAreaId]?.spawn || { x: 1, y: 1 }, { avoidTriggers: true });
       const nextWorld = {
         ...state.world,
         areaId: nextAreaId,
@@ -909,7 +1127,7 @@ export function GameProvider({ children }) {
         dispatch({ type: 'PATCH', payload: { error: lockMessageForArea(nextAreaId, state.world.flags) } });
         return false;
       }
-      const spawn = AREA_MAPS[nextAreaId]?.spawn || { x: 1, y: 1 };
+      const spawn = nearestValidPosition(nextAreaId, AREA_MAPS[nextAreaId]?.spawn || { x: 1, y: 1 }, { avoidTriggers: true });
       const nextWorld = {
         ...state.world,
         areaId: nextAreaId,
@@ -981,9 +1199,25 @@ export function GameProvider({ children }) {
     },
 
     async movePlayer(direction) {
+      if (state.battle || state.screen !== SCREENS.WORLD) return;
       const areaId = state.world.areaId;
       const map = AREA_MAPS[areaId];
       if (!map) return;
+      const currentTile = getTileAt(areaId, state.world.playerPos.x, state.world.playerPos.y);
+      if (currentTile == null || isBlockingTile(currentTile)) {
+        const fixedPos = nearestValidPosition(areaId, state.world.playerPos, { avoidTriggers: true });
+        dispatch({
+          type: 'PATCH',
+          payload: {
+            world: {
+              ...state.world,
+              playerPos: { ...fixedPos },
+            },
+            questToast: 'Posicao ajustada automaticamente para um ponto valido.',
+          },
+        });
+        return;
+      }
 
       const dirMap = {
         up: { x: 0, y: -1 },
@@ -1000,6 +1234,7 @@ export function GameProvider({ children }) {
         y: state.world.playerPos.y + dir.y,
       };
       const nextTile = getTileAt(areaId, nextPos.x, nextPos.y);
+      const exit = findExit(areaId, nextPos.x, nextPos.y);
       const blockingNpc = tileHasNpc(areaId, nextPos.x, nextPos.y);
       if (blockingNpc) {
         dispatch({
@@ -1014,7 +1249,7 @@ export function GameProvider({ children }) {
         });
         return;
       }
-      if (isBlockingTile(nextTile)) {
+      if (isBlockingTile(nextTile) && !exit) {
         dispatch({
           type: 'PATCH',
           payload: {
@@ -1027,8 +1262,114 @@ export function GameProvider({ children }) {
         });
         return;
       }
+      if (nextTile === 'N') {
+        const trainerId = (AREAS[areaId]?.trainers || []).find((id) => !state.world.defeatedTrainers[id] && TRAINERS[id]);
+        const nextWorld = {
+          ...state.world,
+          playerPos: nextPos,
+          playerFacing: direction,
+          playerFrame: nextFrame,
+          stepsInArea: state.world.stepsInArea + 1,
+        };
+        if (!trainerId) {
+          dispatch({ type: 'PATCH', payload: { world: nextWorld, questToast: 'Sem treinadores pendentes nesta area.' } });
+          return;
+        }
+        dispatch({ type: 'PATCH', payload: { world: nextWorld } });
+        dispatch({ type: 'SET_LOADING', payload: true });
+        try {
+          const trainer = TRAINERS[trainerId];
+          const enemyTeam = [];
+          for (const spec of trainer.team) {
+            const scaledLevel = adjustEnemyLevel(spec.level, state.world.mapPreset);
+            enemyTeam.push(await fetchPokemonWithMoves(spec.species, scaledLevel, 'trainer'));
+          }
+          const battle = startTrainerBattle(state.team, enemyTeam, trainerId);
+          dispatch({ type: 'PATCH', payload: { battle, screen: SCREENS.BATTLE } });
+        } catch (_error) {
+          dispatch({ type: 'PATCH', payload: { error: 'Falha ao iniciar batalha de treinador.' } });
+        } finally {
+          dispatch({ type: 'SET_LOADING', payload: false });
+        }
+        return;
+      }
 
-      const exit = findExit(areaId, nextPos.x, nextPos.y);
+      if (nextTile === 'L') {
+        if (areaId === 'legendTower') {
+          const runtime = state.worldSystems?.legendTower || { currentFloor: 1, clearedFloors: [], completed: false };
+          const floor = LEGEND_TOWER_FLOORS.find((entry) => entry.floor === runtime.currentFloor);
+          const nextWorld = {
+            ...state.world,
+            playerPos: nextPos,
+            playerFacing: direction,
+            playerFrame: nextFrame,
+            stepsInArea: state.world.stepsInArea + 1,
+          };
+          if (!(state.world.flags || []).includes('ALL_GYMS_CLEAR')) {
+            dispatch({ type: 'PATCH', payload: { world: nextWorld, questToast: 'Derrote todos os lideres para liberar a Legend Tower.' } });
+            return;
+          }
+          if (!floor) {
+            dispatch({ type: 'PATCH', payload: { world: nextWorld, questToast: 'Legend Tower concluida.' } });
+            return;
+          }
+          dispatch({ type: 'PATCH', payload: { world: nextWorld } });
+          dispatch({ type: 'SET_LOADING', payload: true });
+          try {
+            const scaled = adjustEnemyLevel(floor.level, state.world.mapPreset);
+            const legendary = await fetchPokemonWithMoves(floor.species, scaled, 'tower');
+            const battle = {
+              ...startWildBattle(state.team, legendary),
+              canRun: false,
+              trainerId: `legend-floor-${floor.floor}`,
+            };
+            dispatch({ type: 'PATCH', payload: { battle, screen: SCREENS.BATTLE } });
+          } catch (_error) {
+            dispatch({ type: 'PATCH', payload: { error: 'Falha ao iniciar batalha da Legend Tower.' } });
+          } finally {
+            dispatch({ type: 'SET_LOADING', payload: false });
+          }
+          return;
+        }
+
+        const gym = Object.values(GYMS).find((entry) => entry.areaId === areaId) || null;
+        const nextWorld = {
+          ...state.world,
+          playerPos: nextPos,
+          playerFacing: direction,
+          playerFrame: nextFrame,
+          stepsInArea: state.world.stepsInArea + 1,
+        };
+        if (!gym) {
+          dispatch({ type: 'PATCH', payload: { world: nextWorld, questToast: 'Nao ha lider de ginasio neste ponto.' } });
+          return;
+        }
+        if (state.world.gymsDefeated[gym.id]) {
+          dispatch({ type: 'PATCH', payload: { world: nextWorld, questToast: 'Lider deste ginasio ja foi derrotado.' } });
+          return;
+        }
+        if (gym.unlockFlag && !state.world.flags.includes(gym.unlockFlag)) {
+          dispatch({ type: 'PATCH', payload: { world: nextWorld, questToast: `Requisito para desafiar: ${gym.unlockFlag}` } });
+          return;
+        }
+        dispatch({ type: 'PATCH', payload: { world: nextWorld } });
+        dispatch({ type: 'SET_LOADING', payload: true });
+        try {
+          const enemyTeam = [];
+          for (const spec of gym.team) {
+            const scaledLevel = adjustEnemyLevel(spec.level, state.world.mapPreset);
+            enemyTeam.push(await fetchPokemonWithMoves(spec.species, scaledLevel, 'leader'));
+          }
+          const battle = startTrainerBattle(state.team, enemyTeam, gym.id);
+          dispatch({ type: 'PATCH', payload: { battle, screen: SCREENS.BATTLE } });
+        } catch (_error) {
+          dispatch({ type: 'PATCH', payload: { error: 'Falha ao iniciar batalha de ginasio.' } });
+        } finally {
+          dispatch({ type: 'SET_LOADING', payload: false });
+        }
+        return;
+      }
+
       if (exit) {
         if (!canTravel(areaId, exit.to, state.world.flags)) {
           dispatch({ type: 'PATCH', payload: { error: lockMessageForArea(exit.to, state.world.flags) } });
@@ -1038,7 +1379,7 @@ export function GameProvider({ children }) {
         const nextWorld = {
           ...state.world,
           areaId: exit.to,
-          playerPos: { ...(exit.spawn || AREA_MAPS[exit.to]?.spawn || { x: 1, y: 1 }) },
+          playerPos: nearestValidPosition(exit.to, exit.spawn || AREA_MAPS[exit.to]?.spawn || { x: 1, y: 1 }, { avoidTriggers: true }),
           playerFacing: direction,
           playerFrame: nextFrame,
           stepsInArea: 0,
@@ -1091,6 +1432,45 @@ export function GameProvider({ children }) {
         playerFrame: nextFrame,
         stepsInArea: state.world.stepsInArea + 1,
       };
+
+      if (nextTile === 'B') {
+        const areaBoss = AREA_BOSSES[areaId] || null;
+        const bossDefeated = areaBoss ? !!(state.worldSystems?.bossesDefeated || {})[areaBoss.id] : false;
+        const bossLocked = areaBoss?.unlockFlag && !(state.world.flags || []).includes(areaBoss.unlockFlag);
+        if (!areaBoss || bossDefeated || bossLocked) {
+          dispatch({
+            type: 'PATCH',
+            payload: {
+              world: nextWorld,
+              questToast: areaBoss
+                ? bossDefeated
+                  ? 'Boss desta area ja foi derrotado.'
+                  : `Boss bloqueado. Requisito: ${areaBoss.unlockFlag}.`
+                : 'Nao ha boss configurado para este tile.',
+            },
+          });
+          return;
+        }
+
+        dispatch({ type: 'PATCH', payload: { world: nextWorld } });
+        dispatch({ type: 'SET_LOADING', payload: true });
+        try {
+          const scaled = adjustEnemyLevel(areaBoss.level, state.world.mapPreset);
+          const alpha = await fetchPokemonWithMoves(areaBoss.species, scaled, 'boss');
+          const battle = {
+            ...startWildBattle(state.team, alpha),
+            canRun: false,
+            trainerId: areaBoss.id,
+          };
+          dispatch({ type: 'PATCH', payload: { battle, screen: SCREENS.BATTLE } });
+        } catch (_error) {
+          dispatch({ type: 'PATCH', payload: { error: 'Falha ao iniciar batalha de boss.' } });
+        } finally {
+          dispatch({ type: 'SET_LOADING', payload: false });
+        }
+        return;
+      }
+
       const outside = applyOutsideStatusStep(state.team);
       const daycareRuntime = advanceDaycare(state.daycare, outside.team, 1);
       dispatch({
@@ -1198,6 +1578,8 @@ export function GameProvider({ children }) {
         }
         const battle = startTrainerBattle(state.team, enemyTeam, trainerId);
         dispatch({ type: 'PATCH', payload: { battle, screen: SCREENS.BATTLE } });
+      } catch (_error) {
+        dispatch({ type: 'PATCH', payload: { error: 'Falha ao iniciar batalha de treinador.' } });
       } finally {
         dispatch({ type: 'SET_LOADING', payload: false });
       }
@@ -1218,6 +1600,8 @@ export function GameProvider({ children }) {
         }
         const battle = startTrainerBattle(state.team, enemyTeam, gymId);
         dispatch({ type: 'PATCH', payload: { battle, screen: SCREENS.BATTLE } });
+      } catch (_error) {
+        dispatch({ type: 'PATCH', payload: { error: 'Falha ao iniciar batalha de ginasio.' } });
       } finally {
         dispatch({ type: 'SET_LOADING', payload: false });
       }
@@ -1291,10 +1675,14 @@ export function GameProvider({ children }) {
       const defeated = nextBattle.enemyTeam[nextBattle.enemyActiveIndex];
       const isGym = nextBattle.trainerId && !!GYMS[nextBattle.trainerId];
       const areaBoss = getAreaBossById(nextBattle.trainerId);
+      const legendFloor = nextBattle.trainerId
+        ? LEGEND_TOWER_FLOORS.find((entry) => `legend-floor-${entry.floor}` === nextBattle.trainerId)
+        : null;
       const moneyMod = pathChoiceModifier(state.worldSystems).money || 1;
       const trainerReward = TRAINERS[nextBattle.trainerId]?.rewardMoney
         || GYMS[nextBattle.trainerId]?.rewardMoney
         || areaBoss?.rewardMoney
+        || legendFloor?.rewardMoney
         || 0;
       const adjustedTrainerReward = Math.floor(trainerReward * moneyMod);
       const reward = applyBattleRewards({
@@ -1342,6 +1730,9 @@ export function GameProvider({ children }) {
       let nextBadges = state.badges;
       let nextFlags = [...state.world.flags];
       let nextBossesDefeated = { ...(state.worldSystems?.bossesDefeated || {}) };
+      let nextLegendTower = {
+        ...(state.worldSystems?.legendTower || { currentFloor: 1, clearedFloors: [], completed: false }),
+      };
       let nextInventoryWithBossReward = state.inventory;
 
       if (nextBattle.trainerId && TRAINERS[nextBattle.trainerId]) {
@@ -1352,6 +1743,8 @@ export function GameProvider({ children }) {
       if (isGym) {
         nextGymsDefeated[nextBattle.trainerId] = true;
         nextBadges = addBadge(nextBadges, GYMS[nextBattle.trainerId].badgeId);
+        const allGymsCleared = Object.keys(GYMS).every((gymId) => nextGymsDefeated[gymId]);
+        if (allGymsCleared && !nextFlags.includes('ALL_GYMS_CLEAR')) nextFlags.push('ALL_GYMS_CLEAR');
       }
 
       if (areaBoss) {
@@ -1360,12 +1753,30 @@ export function GameProvider({ children }) {
           nextInventoryWithBossReward = addItem(nextInventoryWithBossReward, itemId, qty);
         }
       }
+      if (legendFloor) {
+        const cleared = Array.isArray(nextLegendTower.clearedFloors) ? [...nextLegendTower.clearedFloors] : [];
+        if (!cleared.includes(legendFloor.floor)) cleared.push(legendFloor.floor);
+        const totalFloors = LEGEND_TOWER_FLOORS.length;
+        nextLegendTower = {
+          currentFloor: Math.min(totalFloors, legendFloor.floor + 1),
+          clearedFloors: cleared,
+          completed: legendFloor.floor >= totalFloors,
+        };
+        if (nextLegendTower.completed && !nextFlags.includes('LEGEND_TOWER_CLEAR')) nextFlags.push('LEGEND_TOWER_CLEAR');
+      }
 
-      const rewardCard = await withTimeout(
-        searchTcgCards({ q: `nationalPokedexNumbers:${defeated.pokemonId}`, pageSize: 1 }),
-        3000,
-        null
-      );
+      let rewardCard = null;
+      if (defeated?.pokemonId) {
+        try {
+          rewardCard = await withTimeout(
+            searchTcgCards({ q: `nationalPokedexNumbers:${defeated.pokemonId}`, pageSize: 1 }),
+            3000,
+            null
+          );
+        } catch (_error) {
+          rewardCard = null;
+        }
+      }
       const card = rewardCard?.data?.[0];
       const nextCollection = { ...state.tcg.collection };
       if (card?.id) {
@@ -1378,25 +1789,40 @@ export function GameProvider({ children }) {
         gymsDefeated: nextGymsDefeated,
         flags: nextFlags,
       };
-      const questRuntime = nextBattle.trainerId
-        ? resolveQuestRuntime({
-          event: { type: 'defeat-trainer', trainerId: nextBattle.trainerId, areaId: state.world.areaId },
+      let questRuntime;
+      try {
+        questRuntime = nextBattle.trainerId
+          ? resolveQuestRuntime({
+            event: { type: 'defeat-trainer', trainerId: nextBattle.trainerId, areaId: state.world.areaId },
+            world: nextWorldAfterBattle,
+            inventory: nextInventoryWithBossReward,
+            money: reward.money,
+            team: nextTeam,
+          })
+          : {
+            quests: state.quests,
+            world: nextWorldAfterBattle,
+            inventory: state.inventory,
+            money: reward.money,
+            team: nextTeam,
+            reputation: state.reputation,
+            questToast: null,
+            questPopup: null,
+            completedQuestCount: 0,
+          };
+      } catch (_error) {
+        questRuntime = {
+          quests: state.quests,
           world: nextWorldAfterBattle,
           inventory: nextInventoryWithBossReward,
           money: reward.money,
           team: nextTeam,
-        })
-        : {
-          quests: state.quests,
-          world: nextWorldAfterBattle,
-          inventory: state.inventory,
-          money: reward.money,
-          team: nextTeam,
           reputation: state.reputation,
-          questToast: null,
+          questToast: 'Batalha concluida, mas houve falha ao processar quest. Continue jogando.',
           questPopup: null,
           completedQuestCount: 0,
         };
+      }
       const regionId = AREAS[state.world.areaId]?.region;
       const reputationAfterBattle = nextBattle.trainerId
         ? addReputation(questRuntime.reputation, regionId, 3)
@@ -1445,6 +1871,7 @@ export function GameProvider({ children }) {
           worldSystems: {
             ...state.worldSystems,
             bossesDefeated: nextBossesDefeated,
+            legendTower: nextLegendTower,
           },
         },
       });
@@ -1453,10 +1880,12 @@ export function GameProvider({ children }) {
     runFromBattle() {
       if (!state.battle?.wild || !state.battle?.canRun) return false;
       if (Math.random() < 0.8) {
+        const safePos = nearestValidPosition(state.world.areaId, state.world.playerPos, { avoidTriggers: true });
         dispatch({
           type: 'PATCH',
           payload: {
             team: state.battle.playerTeam,
+            world: { ...state.world, playerPos: safePos },
             battle: null,
             screen: SCREENS.WORLD,
           },
@@ -1470,9 +1899,31 @@ export function GameProvider({ children }) {
       const battle = state.battle;
       if (!battle?.wild) return false;
       if ((state.inventory[itemId] || 0) <= 0) return false;
+      if (ITEMS[itemId]?.kind !== 'ball') return false;
 
       const target = battle.enemyTeam[battle.enemyActiveIndex];
-      const chance = calculateCaptureChance({ targetPokemon: target, ballBonus: ITEMS[itemId]?.captureBonus || 1 });
+      const areaBoss = battle.trainerId ? getAreaBossById(battle.trainerId) : null;
+      const isBossCapture = !!areaBoss;
+      const hpRatio = Math.max(0, Math.min(1, (target.currentHp || 1) / Math.max(1, target.stats?.hp || 1)));
+      if (isBossCapture && hpRatio > 0.25) {
+        dispatch({
+          type: 'PATCH',
+          payload: {
+            battle: {
+              ...battle,
+              log: [...battle.log.slice(-18), 'Boss lendario so pode ser capturado com HP muito baixo.'],
+            },
+            questToast: 'Reduza o HP do boss para 25% ou menos.',
+          },
+        });
+        return false;
+      }
+
+      const chance = isBossCapture
+        ? itemId === 'ultraBall'
+          ? 1
+          : Math.max(0.06, Math.min(0.82, (1 - hpRatio) * (ITEMS[itemId]?.captureBonus || 1) * 0.42))
+        : calculateCaptureChance({ targetPokemon: target, ballBonus: ITEMS[itemId]?.captureBonus || 1 });
       const success = Math.random() <= chance;
 
       const nextInventory = consumeItem(state.inventory, itemId, 1);
@@ -1543,21 +1994,36 @@ export function GameProvider({ children }) {
         });
       }
 
+      let nextInventoryAfterCapture = questRuntime.inventory;
+      let nextMoneyAfterCapture = questRuntime.money;
+      let nextWorldSystems = state.worldSystems;
+      if (areaBoss) {
+        nextMoneyAfterCapture += areaBoss.rewardMoney || 0;
+        for (const [rewardItemId, qty] of Object.entries(areaBoss.rewardItems || {})) {
+          nextInventoryAfterCapture = addItem(nextInventoryAfterCapture, rewardItemId, qty);
+        }
+        nextWorldSystems = {
+          ...state.worldSystems,
+          bossesDefeated: { ...(state.worldSystems?.bossesDefeated || {}), [areaBoss.id]: true },
+        };
+      }
+
       dispatch({
         type: 'PATCH',
         payload: {
-          inventory: questRuntime.inventory,
+          inventory: nextInventoryAfterCapture,
           team: questRuntime.team,
           storage: nextStorage,
           pokedex: markCaught(state.pokedex, target.species),
           quests: questRuntime.quests,
           world: questRuntime.world,
-          money: questRuntime.money,
+          money: nextMoneyAfterCapture,
           reputation: reputationAfterCapture,
           achievements: achievementRuntime.achievements,
-          questToast: questRuntime.questToast,
+          questToast: areaBoss ? `Boss ${areaBoss.name} capturado com sucesso!` : questRuntime.questToast,
           questPopup: questRuntime.questPopup || state.questPopup,
           achievementToast: achievementRuntime.toast || state.achievementToast,
+          worldSystems: nextWorldSystems,
           battle: {
             ...battle,
             phase: 'ended',
@@ -1580,10 +2046,12 @@ export function GameProvider({ children }) {
     },
 
     leaveBattle() {
+      const safePos = nearestValidPosition(state.world.areaId, state.world.playerPos, { avoidTriggers: true });
       dispatch({
         type: 'PATCH',
         payload: {
           team: state.battle?.playerTeam || state.team,
+          world: { ...state.world, playerPos: safePos },
           battle: null,
           battleSummary: null,
           captureSummary: null,
@@ -1614,9 +2082,11 @@ export function GameProvider({ children }) {
     },
 
     finalizeBattleFlow() {
+      const safePos = nearestValidPosition(state.world.areaId, state.world.playerPos, { avoidTriggers: true });
       dispatch({
         type: 'PATCH',
         payload: {
+          world: { ...state.world, playerPos: safePos },
           battle: null,
           battleSummary: null,
           captureSummary: null,
@@ -1628,7 +2098,7 @@ export function GameProvider({ children }) {
     useBattleItem(itemId) {
       if (!state.battle || state.battle.phase !== 'active') return false;
       if ((state.inventory[itemId] || 0) <= 0) return false;
-      if (itemId === 'pokeball') return false;
+      if (ITEMS[itemId]?.kind === 'ball') return false;
       const item = ITEMS[itemId];
       if (!item) return false;
 
@@ -1675,7 +2145,7 @@ export function GameProvider({ children }) {
       }
 
       const updated = applyItemToPokemon(target, itemId);
-      const changed = updated.currentHp !== target.currentHp || updated.fainted !== target.fainted;
+      const changed = didPokemonChange(target, updated);
       if (!changed) return false;
 
       const nextPlayerTeam = [...state.battle.playerTeam];
@@ -1689,7 +2159,7 @@ export function GameProvider({ children }) {
           battle: {
             ...state.battle,
             playerTeam: nextPlayerTeam,
-            log: [...state.battle.log.slice(-19), `${updated.name} recuperou HP com item.`],
+            log: [...state.battle.log.slice(-19), `${updated.name} recebeu efeito de ${item.name}.`],
           },
         },
       });
@@ -1702,11 +2172,7 @@ export function GameProvider({ children }) {
       if (!target) return;
       if (ITEMS[itemId]?.kind === 'evolution') return;
       const updated = applyItemToPokemon(target, itemId);
-      const changed = (
-        updated.currentHp !== target.currentHp ||
-        updated.fainted !== target.fainted ||
-        updated.status !== target.status
-      );
+      const changed = didPokemonChange(target, updated);
       if (!changed) return;
       const nextTeam = replaceTeamMember(state.team, uid, updated);
       const nextInventory = consumeItem(state.inventory, itemId, 1);
@@ -1859,6 +2325,47 @@ export function GameProvider({ children }) {
       return true;
     },
 
+    async teleportToArea(nextAreaId) {
+      const area = AREAS[nextAreaId];
+      if (!area) return false;
+      const missing = (area.requires || []).filter((flag) => !(state.world.flags || []).includes(flag));
+      if (missing.length) {
+        dispatch({ type: 'PATCH', payload: { error: lockMessageForArea(nextAreaId, state.world.flags) } });
+        return false;
+      }
+      const discovered = state.world.discoveredAreas || [];
+      const isNewArea = !discovered.includes(nextAreaId);
+      const spawn = nearestValidPosition(nextAreaId, AREA_MAPS[nextAreaId]?.spawn || { x: 1, y: 1 }, { avoidTriggers: true });
+      const nextWorld = {
+        ...state.world,
+        areaId: nextAreaId,
+        playerPos: { ...spawn },
+        playerFacing: 'down',
+        stepsInArea: 0,
+        discoveredAreas: isNewArea ? [...discovered, nextAreaId] : [...discovered],
+      };
+      const questRuntime = resolveQuestRuntime({
+        event: { type: 'enter-area', areaId: nextAreaId },
+        world: nextWorld,
+      });
+      const syncedSystems = syncWorldSystems(state.worldSystems);
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          world: questRuntime.world,
+          team: questRuntime.team,
+          quests: questRuntime.quests,
+          inventory: questRuntime.inventory,
+          money: questRuntime.money,
+          reputation: questRuntime.reputation,
+          questToast: questRuntime.questToast,
+          questPopup: questRuntime.questPopup || state.questPopup,
+          worldSystems: syncedSystems,
+        },
+      });
+      return true;
+    },
+
     async runExpedition(expeditionId, memberUid) {
       const expedition = EXPEDITIONS[expeditionId];
       if (!expedition) return false;
@@ -1994,8 +2501,14 @@ export function GameProvider({ children }) {
       try {
         const scaled = adjustEnemyLevel(boss.level, state.world.mapPreset);
         const alpha = await fetchPokemonWithMoves(boss.species, scaled, 'boss');
-        const battle = startTrainerBattle(state.team, [alpha], boss.id);
+        const battle = {
+          ...startWildBattle(state.team, alpha),
+          canRun: false,
+          trainerId: boss.id,
+        };
         dispatch({ type: 'PATCH', payload: { battle, screen: SCREENS.BATTLE } });
+      } catch (_error) {
+        dispatch({ type: 'PATCH', payload: { error: 'Falha ao iniciar batalha de boss.' } });
       } finally {
         dispatch({ type: 'SET_LOADING', payload: false });
       }
@@ -2068,9 +2581,50 @@ export function GameProvider({ children }) {
       return win;
     },
 
+    async challengeLegendTowerFloor() {
+      if (state.world.areaId !== 'legendTower') return false;
+      if (!(state.world.flags || []).includes('ALL_GYMS_CLEAR')) return false;
+      const runtime = state.worldSystems?.legendTower || { currentFloor: 1, clearedFloors: [], completed: false };
+      const floor = LEGEND_TOWER_FLOORS.find((entry) => entry.floor === runtime.currentFloor);
+      if (!floor) {
+        dispatch({ type: 'PATCH', payload: { questToast: 'Legend Tower concluida.' } });
+        return false;
+      }
+
+      dispatch({ type: 'SET_LOADING', payload: true });
+      try {
+        const scaled = adjustEnemyLevel(floor.level, state.world.mapPreset);
+        const legendary = await fetchPokemonWithMoves(floor.species, scaled, 'tower');
+        const battle = {
+          ...startWildBattle(state.team, legendary),
+          canRun: false,
+          trainerId: `legend-floor-${floor.floor}`,
+        };
+        dispatch({ type: 'PATCH', payload: { battle, screen: SCREENS.BATTLE } });
+      } finally {
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
+      return true;
+    },
+
     refreshDailyWorld() {
       const synced = syncWorldSystems(state.worldSystems);
       dispatch({ type: 'PATCH', payload: { worldSystems: synced } });
+    },
+
+    reviveSatelliteBosses() {
+      const nextSystems = {
+        ...syncWorldSystems(state.worldSystems),
+        bossesDefeated: {},
+      };
+      dispatch({
+        type: 'PATCH',
+        payload: {
+          worldSystems: nextSystems,
+          questToast: 'Bosses dos satelites foram revividos.',
+        },
+      });
+      return true;
     },
 
     markNpcCodexViewed(npcId) {

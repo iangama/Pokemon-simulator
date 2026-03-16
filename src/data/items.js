@@ -1,8 +1,13 @@
 export const ITEMS = {
   pokeball: { id: 'pokeball', name: 'Poke Ball', kind: 'ball', buyPrice: 200, heal: 0, revive: false, captureBonus: 1 },
+  greatBall: { id: 'greatBall', name: 'Great Ball', kind: 'ball', buyPrice: 600, heal: 0, revive: false, captureBonus: 1.55 },
+  ultraBall: { id: 'ultraBall', name: 'Ultra Ball', kind: 'ball', buyPrice: 1200, heal: 0, revive: false, captureBonus: 2.1 },
   potion: { id: 'potion', name: 'Potion', kind: 'healing', buyPrice: 300, heal: 20, revive: false },
   superPotion: { id: 'superPotion', name: 'Super Potion', kind: 'healing', buyPrice: 700, heal: 50, revive: false },
   revive: { id: 'revive', name: 'Revive', kind: 'revive', buyPrice: 1500, heal: 0.5, revive: true },
+  energySmall: { id: 'energySmall', name: 'Energy Drink S', kind: 'energy', buyPrice: 350, ppRestore: 8 },
+  energyMedium: { id: 'energyMedium', name: 'Energy Drink M', kind: 'energy', buyPrice: 900, ppRestore: 16 },
+  energyLarge: { id: 'energyLarge', name: 'Energy Drink L', kind: 'energy', buyPrice: 1800, ppRestore: 30 },
   antidote: { id: 'antidote', name: 'Antidote', kind: 'status', buyPrice: 100, heal: 0, revive: false },
   xAttack: { id: 'xAttack', name: 'X Attack', kind: 'battle-buff', stat: 'attack', multiplier: 1.3, buyPrice: 550 },
   guardSpec: { id: 'guardSpec', name: 'Guard Spec', kind: 'battle-buff', stat: 'defense', multiplier: 1.25, buyPrice: 700 },

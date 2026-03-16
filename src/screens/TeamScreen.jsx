@@ -10,9 +10,10 @@ export default function TeamScreen({ state, actions }) {
     <div className="screen">
       <TeamPanel
         team={state.team}
+        inventory={state.inventory}
         storage={state.storage}
         daycare={state.daycare}
-        onUsePotion={(uid) => actions.useItem('potion', uid)}
+        onUseItem={(itemId, uid) => actions.useItem(itemId, uid)}
         onEvolve={(uid) => actions.evolvePokemon(uid)}
         onEvolveWithItem={(uid, itemId) => actions.evolvePokemonWithItem(uid, itemId)}
         getItemEvolutions={(uid) => actions.getItemEvolutions(uid)}

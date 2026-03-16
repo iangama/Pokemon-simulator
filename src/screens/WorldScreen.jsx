@@ -26,7 +26,7 @@ export default function WorldScreen({ state, actions }) {
   const areaBoss = AREA_BOSSES[state.world.areaId] || null;
   const bossDefeated = areaBoss ? !!worldSystems?.bossesDefeated?.[areaBoss.id] : false;
   const bossLocked = areaBoss?.unlockFlag && !(state.world.flags || []).includes(areaBoss.unlockFlag);
-  const hubTypes = new Set(['town', 'center', 'shop', 'gym']);
+  const hubTypes = new Set(['town', 'center', 'shop', 'gym', 'tower']);
   const fastTravelOptions = discoveredAreas
     .map((id) => AREAS[id])
     .filter((entry) => entry && hubTypes.has(entry.type) && entry.id !== state.world.areaId);
@@ -95,6 +95,7 @@ export default function WorldScreen({ state, actions }) {
           neighbors={neighbors}
           trainers={trainers.filter((t) => !state.world.defeatedTrainers[t.id])}
           onTravel={actions.moveToArea}
+          onTeleport={actions.teleportToArea}
           onFastTravel={actions.fastTravel}
           fastTravelOptions={fastTravelOptions}
           onMove={actions.movePlayer}
@@ -148,9 +149,26 @@ export default function WorldScreen({ state, actions }) {
                 </button>
               </div>
             )}
+            {state.world.areaId === 'legendTower' && (
+              <div className="quest-guidance-box">
+                <strong>Legend Tower</strong>
+                <p>
+                  {state.worldSystems?.legendTower?.completed
+                    ? 'Torre concluida. Todos os andares finalizados.'
+                    : `Andar atual: ${state.worldSystems?.legendTower?.currentFloor || 1}`}
+                </p>
+                <button
+                  onClick={actions.challengeLegendTowerFloor}
+                  disabled={!(state.world.flags || []).includes('ALL_GYMS_CLEAR') || !!state.worldSystems?.legendTower?.completed}
+                >
+                  {state.worldSystems?.legendTower?.completed ? 'Concluida' : 'Desafiar Andar'}
+                </button>
+              </div>
+            )}
             <div className="mini-grid">
               <button onClick={actions.runBattleTower}>Rodar Battle Tower</button>
               <button onClick={actions.refreshDailyWorld}>Atualizar clima/evento</button>
+              <button onClick={actions.reviveSatelliteBosses}>Reviver bosses satelite</button>
             </div>
           </div>
 
