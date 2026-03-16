@@ -289,7 +289,7 @@ export const QUEST_PATH_CHOICES = [
     id: 'balanced',
     name: 'Caminho Balanceado',
     description: 'Equilibrio entre captura e combate.',
-    rewardsMod: { money: 1, encounterRate: 1 },
+    rewardsMod: { money: 1, encounterRate: 1.15 },
   },
   {
     id: 'collector',

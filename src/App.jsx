@@ -84,7 +84,7 @@ function GameShell() {
             <button onClick={() => actions.setScreen(SCREENS.TEAM)}>Team</button>
             <button onClick={() => actions.setScreen(SCREENS.INVENTORY)}>Bag</button>
             <button onClick={() => actions.setScreen(SCREENS.POKEDEX)}>Pokedex</button>
-            <button onClick={() => actions.setScreen(SCREENS.STORAGE)}>Storage</button>
+            <button onClick={() => actions.setScreen(SCREENS.STORAGE)}>Reserva</button>
             <button onClick={() => actions.setScreen(SCREENS.SHOP)}>Shop</button>
             <button onClick={() => actions.setScreen(SCREENS.CENTER)}>Center</button>
             <button onClick={() => actions.setScreen(SCREENS.GYM)}>Gym</button>
